@@ -13,7 +13,7 @@ MAX_DURATION_SECONDS = {
 }
 
 
-async def upload_media(db, message_id: uuid.UUID, media_type: MediaType, encrypted_bytes: bytes, duration_seconds: int | None):
+async def upload_media(db, message_id: uuid.UUID | None, media_type: MediaType, encrypted_bytes: bytes, duration_seconds: int | None, nsfw: bool = False):
     """
     Full upload path. The moderation scan happens SYNCHRONOUSLY, before
     the media row is ever marked available — this matters specifically
@@ -30,6 +30,7 @@ async def upload_media(db, message_id: uuid.UUID, media_type: MediaType, encrypt
     media = Media(
         message_id=message_id,
         type=media_type,
+        nsfw=nsfw,
         storage_key=storage_key,
         duration_seconds=duration_seconds,
         scan_status=MediaScanStatus.pending,

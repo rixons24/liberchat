@@ -14,16 +14,16 @@ router = APIRouter()
 async def upload_media(
     file: UploadFile,
     media_type: MediaType = Form(...),
-    message_id: str = Form(...),
     duration_seconds: int | None = Form(None),
+    nsfw: bool = Form(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     encrypted_bytes = await file.read()
     try:
         media = await media_pipeline.upload_media(
-            db, message_id=message_id, media_type=media_type,
-            encrypted_bytes=encrypted_bytes, duration_seconds=duration_seconds,
+            db, message_id=None, media_type=media_type,
+            encrypted_bytes=encrypted_bytes, duration_seconds=duration_seconds, nsfw=nsfw,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -42,6 +42,7 @@ class Media(Base):
     message_id = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     type = Column(Enum(MediaType), nullable=False)
+    nsfw = Column(Boolean, default=False)
 
     # Encrypted object storage key (R2/S3). The object itself is encrypted
     # client-side before upload (E2EE) — server stores ciphertext bytes and

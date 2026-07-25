@@ -104,6 +104,8 @@ const state = {
   pendingSignup: null,     // holds form data between signup/start and OTP verify
   authError: null,
   feedLoading: false,
+  activeThread: null,
+  viewerSignedUrl: null,
 };
 
 // Mock only — the real backend never exposes admin creds this way. See
@@ -117,7 +119,11 @@ const MOCK_ADMIN_CREDENTIALS = { username: "libermod01", password: "adminpasswor
 // Point this at your deployed API. Auth/posts now hit the real FastAPI
 // backend built earlier in this project — DM/media still run on local
 // mock state pending websocket + upload wiring (noted inline below).
-const API_BASE = "http://localhost:8000";
+const urlParams = new URLSearchParams(window.location.search);
+const API_BASE = urlParams.get("api")
+  || localStorage.getItem("liberchat_api_base")
+  || "http://localhost:8000";
+if (urlParams.get("api")) localStorage.setItem("liberchat_api_base", urlParams.get("api"));
 
 async function api(path, { method = "GET", body, token, isFormData = false } = {}) {
   const headers = {};
@@ -146,17 +152,7 @@ const posts = [
   { code: "0144", body: "Sharing details of what I'm looking for tonight — tagged NSFW since the content is explicit.", location: "STONE TOWN", tags: ["CASUAL","NSFW"] },
 ];
 
-const threads = {
-  "0142": {
-    postCode: "0142",
-    reported: false,
-    messages: [
-      { from: "them", text: "Hey — saw your post, I'm into film photography too. What do you shoot on?", time: "14:02" },
-      { from: "me", text: "Mostly an old Pentax K1000. You?", time: "14:04" },
-      { from: "them", text: "Nice. I want to send you a shot from my last roll.", time: "14:05", media: { id: "m1", type: "image", nsfw: false, nsfwAcknowledged: true } },
-    ],
-  },
-};
+
 
 const TIER1 = new Set(["underage", "threat", "nonconsensual"]);
 const TIER2 = new Set(["solicit", "harass", "unsolicited"]);
@@ -417,11 +413,66 @@ async function loadFeed() {
   }
 }
 
-function openThread(code) {
-  if (!threads[code]) threads[code] = { postCode: code, reported: false, messages: [] };
-  state.activeThreadId = code;
-  state.screen = "thread";
-  render();
+function decodeJwtSub(token) {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload.sub;
+  } catch (_) { return null; }
+}
+
+let activeSocket = null;
+
+async function openThread(postId) {
+  try {
+    const thread = await api("/dm/thread/start", { method: "POST", token: state.authToken, body: { post_id: postId } });
+    const history = await api(`/dm/thread/${thread.id}/messages`, { token: state.authToken });
+
+    state.activeThread = {
+      id: thread.id,
+      otherUserId: thread.user_a_id === decodeJwtSub(state.authToken) ? thread.user_b_id : thread.user_a_id,
+      reported: false,
+      messages: history.map((m) => ({
+        id: m.id,
+        from: m.sender_id === decodeJwtSub(state.authToken) ? "me" : "them",
+        text: m.ciphertext,
+        time: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        media: m.media_id ? {
+          id: m.media_id,
+          type: m.media_info?.type || "image",
+          nsfw: m.media_info?.nsfw || false,
+          nsfwAcknowledged: !(m.media_info?.nsfw),
+          consumed: m.media_info?.consumed || false,
+          viewCount: 0,
+        } : null,
+      })),
+    };
+
+    if (activeSocket) activeSocket.close();
+    activeSocket = new WebSocket(`${API_BASE.replace("http", "ws")}/dm/ws/${thread.id}?token=${state.authToken}`);
+    activeSocket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      state.activeThread.messages.push({
+        id: data.message_id,
+        from: data.sender_id === decodeJwtSub(state.authToken) ? "me" : "them",
+        text: data.ciphertext,
+        time: new Date(data.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        media: data.media_id ? {
+          id: data.media_id,
+          type: data.media_info?.type || "image",
+          nsfw: data.media_info?.nsfw || false,
+          nsfwAcknowledged: !(data.media_info?.nsfw),
+          consumed: false,
+          viewCount: 0,
+        } : null,
+      });
+      render();
+    };
+
+    state.screen = "thread";
+    render();
+  } catch (e) {
+    showToast("Could not open thread: " + e.message);
+  }
 }
 
 function FeedScreen() {
@@ -431,7 +482,7 @@ function FeedScreen() {
   const main = el("main", { class: "feed-main" });
   posts.forEach((p) => {
     const card = el("div", { class: "post panel", style: "cursor:pointer;" });
-    card.addEventListener("click", () => openThread(p.code));
+    card.addEventListener("click", () => openThread(p.id));
 
     card.appendChild(el("div", { class: "post-top" }, [
       el("span", { class: "label" }, `POST / ${p.code}`),
@@ -445,7 +496,7 @@ function FeedScreen() {
       el("span", { class: t === "NSFW" ? "tag" : "tag", style: t === "NSFW" ? "border-color:#B23B2E; color:#B23B2E;" : "" }, t)
     )));
     const respondBtn = el("button", { class: "btn-secondary" }, "Respond");
-    respondBtn.addEventListener("click", (e) => { e.stopPropagation(); openThread(p.code); });
+    respondBtn.addEventListener("click", (e) => { e.stopPropagation(); openThread(p.id); });
     bottom.appendChild(respondBtn);
     card.appendChild(bottom);
 
@@ -476,9 +527,9 @@ function Header(title, onBack) {
 }
 
 function ThreadScreen() {
-  const thread = threads[state.activeThreadId];
+  const thread = state.activeThread;
   const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
-  wrap.appendChild(Header(`THREAD / ${thread.postCode}`, () => { state.screen = "feed"; render(); }));
+  wrap.appendChild(Header(`THREAD / ${thread.id.slice(0, 8).toUpperCase()}`, () => { state.screen = "feed"; render(); }));
 
   const msgsWrap = el("div", { class: "thread-msgs" });
 
@@ -506,11 +557,16 @@ function ThreadScreen() {
         chip.addEventListener("click", () => { m.media.nsfwAcknowledged = true; render(); });
       } else {
         chip = el("div", { class: "media-chip" }, `TAP TO VIEW ${m.media.type.toUpperCase()} — VIEW ONCE`);
-        chip.addEventListener("click", () => {
-          state.viewerMedia = m.media;
-          if (!state.viewerMedia.viewCount) state.viewerMedia.viewCount = 0;
-          state.viewerMedia.viewCount += 1;
-          render();
+        chip.addEventListener("click", async () => {
+          try {
+            const resp = await api(`/media/${m.media.id}/view`, { method: "POST", token: state.authToken });
+            m.media.viewCount = resp.view_count;
+            state.viewerMedia = m.media;
+            state.viewerSignedUrl = resp.signed_url;
+            render();
+          } catch (e) {
+            showToast("Could not open media: " + e.message);
+          }
         });
       }
       bubble.appendChild(document.createElement("br"));
@@ -523,7 +579,7 @@ function ThreadScreen() {
   wrap.appendChild(msgsWrap);
 
   const composer = el("div", { class: "composer" });
-  const input = el("input", { type: "text", placeholder: thread.reported ? "This thread is frozen." : "Message — encrypted end to end" });
+  const input = el("input", { type: "text", placeholder: thread.reported ? "This thread is frozen." : "Message — plaintext for now, E2EE key exchange not yet wired client-side" });
   if (thread.reported) input.setAttribute("disabled", "true");
   const mediaBtn = el("button", { class: "icon-btn" }, "＋");
   mediaBtn.addEventListener("click", () => {
@@ -535,6 +591,14 @@ function ThreadScreen() {
   sendBtn.addEventListener("click", () => {
     if (thread.reported) return;
     if (!input.value.trim()) return;
+    if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
+      showToast("Connection lost — reopen the thread.");
+      return;
+    }
+    activeSocket.send(JSON.stringify({ ciphertext: input.value.trim(), media_id: null }));
+    // Optimistic local echo — the real row comes back for the recipient
+    // via their own socket message; our own copy is added here since the
+    // relay only pushes to the *other* participant, not an echo to sender.
     thread.messages.push({ from: "me", text: input.value.trim(), time: nowTime() });
     input.value = "";
     render();
@@ -734,52 +798,88 @@ function MediaViewer() {
     el("span", { class: "label", style: "color:#888;" }, `${media.type.toUpperCase()} / VIEWED ${media.viewCount}×`),
     (() => {
       const b = el("button", { class: "btn-danger" }, "Close — deletes on exit");
-      b.addEventListener("click", () => {
-        // session ends -> mark consumed in the underlying thread message
-        const thread = threads[state.activeThreadId];
-        const msg = thread.messages.find((m) => m.media && m.media.id === media.id);
+      b.addEventListener("click", async () => {
+        try {
+          await api(`/media/${media.id}/end-session`, { method: "POST", token: state.authToken });
+        } catch (e) {
+          showToast("Warning: could not confirm deletion — " + e.message);
+        }
+        const msg = state.activeThread.messages.find((m) => m.media && m.media.id === media.id);
         if (msg) { msg.media.consumed = true; msg.media.viewCount = media.viewCount; }
         state.viewerMedia = null;
+        state.viewerSignedUrl = null;
         render();
         showToast("Media deleted from server");
       });
       return b;
     })(),
   ]));
+
   const replay = el("button", { class: "btn-secondary", style: "margin:0 auto;" }, "Replay (within this session)");
-  replay.addEventListener("click", () => { media.viewCount += 1; render(); });
-  wrap.appendChild(el("div", { class: "viewer-body" }, [
-    el("div", {}, [
-      el("span", { class: "label" }, "[ MEDIA PLAYBACK AREA ]"),
-      el("div", { style: "margin-top:20px;" }, replay),
-    ]),
-  ]));
+  replay.addEventListener("click", async () => {
+    try {
+      const resp = await api(`/media/${media.id}/view`, { method: "POST", token: state.authToken });
+      media.viewCount = resp.view_count;
+      render();
+    } catch (e) {
+      showToast("Could not replay: " + e.message);
+    }
+  });
+
+  const body = el("div", { class: "viewer-body" });
+  if (media.type === "image") {
+    body.appendChild(el("img", { src: state.viewerSignedUrl, style: "max-height:70vh; max-width:100%;" }));
+  } else if (media.type === "video") {
+    const v = document.createElement("video");
+    v.src = state.viewerSignedUrl; v.controls = true; v.autoplay = true;
+    v.style.cssText = "max-height:70vh; max-width:100%;";
+    body.appendChild(v);
+  } else {
+    const a = document.createElement("audio");
+    a.src = state.viewerSignedUrl; a.controls = true; a.autoplay = true;
+    body.appendChild(a);
+  }
+  body.appendChild(el("div", { style: "margin-top:20px; text-align:center;" }, replay));
+  wrap.appendChild(body);
+
   wrap.appendChild(el("div", { class: "viewer-bottom" }, el("span", { class: "label", style: "color:#666;" }, "This content deletes permanently when you leave this screen.")));
   return wrap;
 }
 
 function ReportModal() {
   const reasons = [
-    { key: "underage", label: "Underage or suspected minor", tier1: true },
-    { key: "threat", label: "Threats or made me feel unsafe", tier1: true },
-    { key: "nonconsensual", label: "Non-consensual media", tier1: true },
-    { key: "solicit", label: "Soliciting payment / prostitution" },
-    { key: "harass", label: "Harassment or abusive language" },
-    { key: "unsolicited", label: "Unsolicited explicit media" },
-    { key: "scam", label: "Scam or off-platform payment request" },
-    { key: "other", label: "Other" },
+    { key: "underage", backendKey: "underage", label: "Underage or suspected minor", tier1: true },
+    { key: "threat", backendKey: "threat_or_violence", label: "Threats or made me feel unsafe", tier1: true },
+    { key: "nonconsensual", backendKey: "non_consensual", label: "Non-consensual media", tier1: true },
+    { key: "solicit", backendKey: "solicitation", label: "Soliciting payment / prostitution" },
+    { key: "harass", backendKey: "harassment", label: "Harassment or abusive language" },
+    { key: "unsolicited", backendKey: "unsolicited_explicit_media", label: "Unsolicited explicit media" },
+    { key: "scam", backendKey: "scam", label: "Scam or off-platform payment request" },
+    { key: "other", backendKey: "other", label: "Other" },
   ];
   const backdrop = el("div", { class: "modal-backdrop" });
   const modal = el("div", { class: "modal" });
   modal.appendChild(el("span", { class: "label" }, "Report this thread"));
   reasons.forEach((r) => {
     const b = el("button", { class: r.tier1 ? "reason-btn tier1" : "reason-btn" }, r.label);
-    b.addEventListener("click", () => {
-      const thread = threads[state.activeThreadId];
-      thread.reported = true;
-      state.reportModalOpen = false;
-      render();
-      showToast(r.tier1 ? "Reported — priority review, sender restricted" : "Reported — thread frozen for review");
+    b.addEventListener("click", async () => {
+      try {
+        await api("/reports/file", {
+          method: "POST",
+          token: state.authToken,
+          body: {
+            reported_user_id: state.activeThread.otherUserId,
+            reason: r.backendKey,
+            thread_id: state.activeThread.id,
+          },
+        });
+        state.activeThread.reported = true;
+        state.reportModalOpen = false;
+        render();
+        showToast(r.tier1 ? "Reported — priority review, sender restricted" : "Reported — thread frozen for review");
+      } catch (e) {
+        showToast("Could not file report: " + e.message);
+      }
     });
     modal.appendChild(b);
   });
@@ -815,6 +915,10 @@ function AttachMediaModal() {
   });
   modal.appendChild(typeRow);
 
+  const fileInput = el("input", { type: "file", accept: "image/*,video/*,audio/*" });
+  fileInput.style.cssText = "font-size:13px;";
+  modal.appendChild(fileInput);
+
   let markedNsfw = false;
   const nsfwRow = el("label", { style: "display:flex; align-items:center; gap:10px; cursor:pointer; padding-top:6px;" });
   const nsfwCheckbox = el("input", { type: "checkbox" });
@@ -823,22 +927,44 @@ function AttachMediaModal() {
   nsfwRow.appendChild(el("span", { style: "font-size:13px; color:#B23B2E;" }, "Tag this NSFW — recipient sees a warning before it reveals"));
   modal.appendChild(nsfwRow);
 
+  const errorMsg = el("span", { class: "label", style: "color:#B23B2E; display:none;" }, "");
+  modal.appendChild(errorMsg);
+
   const sendBtn = el("button", { class: "btn-primary" }, "Send");
-  sendBtn.addEventListener("click", () => {
-    const thread = threads[state.activeThreadId];
-    thread.messages.push({
-      from: "me",
-      time: nowTime(),
-      media: {
-        id: "m" + Math.random().toString(36).slice(2, 7),
-        type: selectedType,
-        nsfw: markedNsfw,
-        nsfwAcknowledged: !markedNsfw,
-      },
-    });
-    state.attachModalOpen = false;
-    render();
-    showToast("Media sent — recipient can view once");
+  sendBtn.addEventListener("click", async () => {
+    if (!fileInput.files[0]) {
+      errorMsg.textContent = "Choose a file first.";
+      errorMsg.style.display = "block";
+      return;
+    }
+    if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
+      showToast("Connection lost — reopen the thread.");
+      return;
+    }
+    sendBtn.textContent = "Uploading...";
+    sendBtn.disabled = true;
+    try {
+      const form = new FormData();
+      form.append("file", fileInput.files[0]);
+      form.append("media_type", selectedType);
+      form.append("nsfw", markedNsfw ? "true" : "false");
+      const uploadResp = await api("/media/upload", { method: "POST", token: state.authToken, body: form, isFormData: true });
+
+      activeSocket.send(JSON.stringify({ ciphertext: null, media_id: uploadResp.media_id }));
+      state.activeThread.messages.push({
+        from: "me",
+        time: nowTime(),
+        media: { id: uploadResp.media_id, type: selectedType, nsfw: markedNsfw, nsfwAcknowledged: !markedNsfw, viewCount: 0 },
+      });
+      state.attachModalOpen = false;
+      render();
+      showToast("Media sent — recipient can view once");
+    } catch (e) {
+      errorMsg.textContent = e.message;
+      errorMsg.style.display = "block";
+      sendBtn.textContent = "Send";
+      sendBtn.disabled = false;
+    }
   });
   modal.appendChild(sendBtn);
 
