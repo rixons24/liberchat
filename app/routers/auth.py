@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_redis
 from app.core.security import create_access_token
+from app.config import settings
 from app.schemas.user import SignupStart, OtpVerify, SignupComplete, LoginRequest, LoginResponse
 from app.services import auth_service
 from app.models.user import User, UserStatus
@@ -86,3 +87,24 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     token = create_access_token(str(user.id))
     return LoginResponse(user_id=str(user.id), handle=user.handle, access_token=token)
+
+
+@router.get("/debug/otp/{phone_number}")
+async def debug_get_otp(phone_number: str, redis=Depends(get_redis)):
+    """
+    TEMPORARY, TESTING ONLY. Returns the current OTP for a phone number so
+    signup can be tested before a real SMS provider is wired up.
+
+    Gated behind DEBUG_OTP_ENDPOINT_ENABLED, which defaults to false/unset.
+    This must never be enabled in a real deployment — retrieving OTPs
+    without owning the phone number entirely defeats phone verification
+    as a security measure. Delete this endpoint once SMS_PROVIDER_API_KEY
+    is set and confirmed working.
+    """
+    if not settings.debug_otp_endpoint_enabled:
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    otp = await redis.get(f"otp:{phone_number}")
+    if otp is None:
+        raise HTTPException(status_code=404, detail="No pending OTP for this number.")
+    return {"phone_number": phone_number, "otp_code": otp.decode() if isinstance(otp, bytes) else otp}

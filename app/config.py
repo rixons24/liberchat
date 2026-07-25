@@ -25,6 +25,13 @@ class Settings(BaseSettings):
 
     sms_provider_api_key: str = ""   # e.g. Twilio / Africa's Talking
 
+    # TEMPORARY: exposes OTP codes via an API endpoint for testing before
+    # a real SMS provider is wired up. Must be false/unset in any real
+    # deployment — an OTP-retrieval endpoint anyone can hit defeats the
+    # entire purpose of phone verification. Remove the endpoint entirely
+    # once SMS_PROVIDER_API_KEY is set and confirmed working.
+    debug_otp_endpoint_enabled: bool = False
+
     class Config:
         env_file = ".env"
 

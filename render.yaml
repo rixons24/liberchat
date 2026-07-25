@@ -49,3 +49,9 @@ services:
       # Until these are set, signup/login/posts/reports/moderation all
       # work normally; media upload will fail (no real object storage
       # configured yet), and OTPs generate but are never actually texted.
+      #
+      # TEMPORARY, FOR TESTING ONLY: set DEBUG_OTP_ENDPOINT_ENABLED=true to
+      # enable GET /auth/debug/otp/{phone_number} so you can test signup
+      # before Twilio is wired up. Set it back to false (or delete it) the
+      # moment SMS_PROVIDER_API_KEY is live — this endpoint bypasses
+      # phone verification entirely and must never be on in production.
