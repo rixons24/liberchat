@@ -140,6 +140,10 @@ async function api(path, { method = "GET", body, token, isFormData = false } = {
   try { data = await resp.json(); } catch (_) { /* no body */ }
 
   if (!resp.ok) {
+    if (resp.status === 401 && token) {
+      clearSession();
+      showToast("Your session expired — please log in again.");
+    }
     const detail = data && data.detail ? (Array.isArray(data.detail) ? data.detail[0].msg : data.detail) : `Request failed (${resp.status})`;
     throw new Error(detail);
   }
@@ -265,6 +269,17 @@ function GateScreen() {
   return wrap;
 }
 
+function saveSession(token) {
+  state.authToken = token;
+  localStorage.setItem("liberchat_auth_token", token);
+}
+
+function clearSession() {
+  state.authToken = null;
+  localStorage.removeItem("liberchat_auth_token");
+  state.screen = "gate";
+  render();
+}
 function field(type, placeholder, extra = {}) {
   const input = el("input", { type, placeholder, ...extra });
   input.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff; width:100%;";
@@ -338,7 +353,7 @@ function OtpScreen() {
         method: "POST",
         body: { phone_number: state.pendingSignup.phoneNumber, otp_code: code.value.trim() },
       });
-      state.authToken = resp.access_token;
+      saveSession(resp.access_token);
       state.pendingSignup = null;
       state.screen = "feed";
       render();
@@ -375,7 +390,7 @@ function LoginScreen() {
         method: "POST",
         body: { phone_number: phone.value.trim(), password: password.value },
       });
-      state.authToken = resp.access_token;
+      saveSession(resp.access_token);
       state.screen = "feed";
       render();
       loadFeed();
@@ -519,9 +534,18 @@ function Header(title, onBack) {
     reportBtn.addEventListener("click", () => { state.reportModalOpen = true; render(); });
     h.appendChild(reportBtn);
   } else {
+    const right = el("div", { style: "display:flex; gap:8px;" });
     const newPostBtn = el("button", { class: "btn-secondary" }, "New post");
     newPostBtn.addEventListener("click", () => { state.composeModalOpen = true; render(); });
-    h.appendChild(newPostBtn);
+    const logoutBtn = el("button", { class: "btn-ghost" }, "Log out");
+    logoutBtn.addEventListener("click", () => {
+      if (activeSocket) { activeSocket.close(); activeSocket = null; }
+      posts.length = 0;
+      clearSession();
+    });
+    right.appendChild(newPostBtn);
+    right.appendChild(logoutBtn);
+    h.appendChild(right);
   }
   return h;
 }
@@ -1064,6 +1088,17 @@ function Toast() {
 // user browsing LiberChat has no path that leads here.
 if (window.location.hash === "#admin") {
   state.screen = "adminLogin";
+} else {
+  const savedToken = localStorage.getItem("liberchat_auth_token");
+  if (savedToken) {
+    state.authToken = savedToken;
+    state.screen = "feed";
+    // Fire-and-forget: if the token's expired/invalid, loadFeed's own
+    // error handling will show a toast. A 401 here doesn't auto-log-out
+    // since a transient network hiccup shouldn't silently sign someone
+    // out — they can still navigate normally and retry.
+    loadFeed();
+  }
 }
 
 render();
