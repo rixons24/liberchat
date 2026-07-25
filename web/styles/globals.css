@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+body {
+  background: #EDECE7;
+  color: #141414;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8C8A82;
+}
+
+.panel {
+  background: #F7F6F2;
+  border: 1px solid #C9C7BC;
+}
+
+.btn-primary {
+  background: #FF4B1F;
+  color: #F7F6F2;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 12px 20px;
+  border: 1px solid #FF4B1F;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: #141414;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 12px 20px;
+  border: 1px solid #141414;
+}
+
+.btn-danger {
+  color: #B23B2E;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}

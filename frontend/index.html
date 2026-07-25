@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#141414">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LiberChat">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<title>LiberChat — Working Prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; border-radius: 0 !important; box-shadow: none !important; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  html, body { height: 100%; overscroll-behavior-y: contain; }
+  body { background: #EDECE7; color: #141414; font-family: 'Inter', sans-serif; }
+  .app { max-width: 420px; margin: 0 auto; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
+         padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+
+  /* Tablet: app becomes a bordered panel floating in the viewport, feed
+     reflows into a 2-column grid. Below this width (phones) the app stays
+     edge-to-edge full-bleed, matching native mobile app conventions. */
+  @media (min-width: 640px) {
+    body { display: flex; justify-content: center; }
+    .app { max-width: 640px; height: 92vh; height: 92dvh; margin: 4vh auto; border: 1px solid #C9C7BC; }
+    main.feed-main { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-content: start; }
+    main.feed-main .post { margin-bottom: 0; }
+    .msg { max-width: min(78%, 420px); }
+  }
+
+  /* Desktop: wider panel, 3-column feed, mod console queue gets breathing room. */
+  @media (min-width: 1024px) {
+    .app { max-width: 960px; }
+    main.feed-main { grid-template-columns: repeat(3, 1fr); }
+  }
+  .label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8C8A82; }
+  .panel { background: #F7F6F2; border: 1px solid #C9C7BC; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid #C9C7BC; }
+  .wordmark { font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; cursor:pointer; }
+  button { font-family: 'IBM Plex Mono', monospace; cursor: pointer; background: none; }
+  .btn-secondary { color: #141414; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 14px; min-height:44px; border: 1px solid #141414; }
+  .btn-primary { background: #FF4B1F; color: #F7F6F2; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; padding: 14px 20px; min-height:48px; border: 1px solid #FF4B1F; width: 100%; }
+  .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-danger { color: #B23B2E; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid #B23B2E; padding: 10px 12px; min-height:40px; }
+  .btn-ghost { color: #8C8A82; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 0; }
+  main { flex: 1; min-height: 0; padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .post { display: flex; flex-direction: column; gap: 12px; padding: 16px; margin-bottom: 12px; }
+  .post-top { display: flex; justify-content: space-between; }
+  .post-body { font-size: 15px; line-height: 1.55; }
+  .post-bottom { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #C9C7BC; }
+  .tags { display: flex; gap: 6px; }
+  .tag { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid #C9C7BC; padding: 4px 8px; color: #8C8A82; }
+  .interstitial-point { display: flex; gap: 12px; margin-bottom: 14px; align-items: flex-start; }
+  .point-code { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FF4B1F; padding-top: 2px; }
+  .point-text { font-size: 14px; line-height: 1.5; }
+  .checkbox-row { display: flex; gap: 10px; align-items: flex-start; padding-top: 16px; border-top: 1px solid #C9C7BC; margin-top: 6px; }
+  .checkbox-row span { font-size: 12px; color: #8C8A82; }
+  .thread-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #C9C7BC; }
+  .thread-msgs { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width: 78%; padding: 10px 12px; font-size:14px; line-height:1.45; }
+  .msg.me { align-self:flex-end; background:#141414; color:#F7F6F2; }
+  .msg.them { align-self:flex-start; background:#F7F6F2; border:1px solid #C9C7BC; }
+  .msg-meta { font-family:'IBM Plex Mono', monospace; font-size:9px; letter-spacing:0.05em; opacity:0.5; margin-top:4px; display:block; }
+  .media-chip { display:flex; align-items:center; gap:8px; padding:12px; min-height:44px; border:1px dashed #8C8A82; cursor:pointer; font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.05em; text-transform:uppercase; }
+  .media-chip.consumed { border-style:solid; color:#8C8A82; cursor:default; }
+  .composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid #C9C7BC; align-items:center;
+              padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .composer input[type=text] { flex:1; font-family:'Inter'; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#F7F6F2; }
+  .icon-btn { border:1px solid #C9C7BC; padding:10px 12px; font-size:16px; min-width:44px; min-height:44px; }
+  .viewer { position:fixed; inset:0; background:#141414; color:#F7F6F2; display:flex; flex-direction:column; z-index:50; }
+  .viewer-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #333; }
+  .viewer-body { flex:1; display:flex; align-items:center; justify-content:center; padding: 30px; text-align:center; }
+  .viewer-bottom { padding: 12px 16px; border-top: 1px solid #333; }
+  .modal-backdrop { position:fixed; inset:0; background:rgba(20,20,20,0.55); display:flex; align-items:flex-end; z-index:60; }
+  .modal { background:#F7F6F2; border-top:1px solid #C9C7BC; width:100%; padding:20px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; max-width:420px; margin:0 auto; max-height:80vh; overflow-y:auto; }
+  .reason-btn { text-align:left; padding:14px 12px; min-height:44px; border:1px solid #C9C7BC; font-family:'Inter'; font-size:14px; background:#fff; }
+  .reason-btn.tier1 { border-color:#B23B2E; }
+  .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#141414; color:#F7F6F2; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 18px; z-index:70; }
+  .empty { text-align:center; padding:40px 20px; color:#8C8A82; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="root" class="app"></div>
+
+<script>
+// ---------- Mock state ----------
+const state = {
+  screen: "gate",          // gate | feed | thread | mod | adminLogin
+  gateChecked: false,
+  activeThreadId: null,
+  toast: null,
+  viewerMedia: null,       // { id, type, viewCount, consumed }
+  reportModalOpen: false,
+  composeModalOpen: false,
+  modTab: "queue",         // queue | audit
+  modSelectedReportId: null,
+  attachModalOpen: false,
+  adminAuthenticated: false,
+  adminLoginError: null,
+  authToken: null,
+  pendingSignup: null,     // holds form data between signup/start and OTP verify
+  authError: null,
+  feedLoading: false,
+};
+
+// Mock only — the real backend never exposes admin creds this way. See
+// app/routers/admin_auth.py: this is a genuinely separate credential
+// system (separate admin_users table, separate JWT token type) with no
+// public self-registration endpoint. This mock just simulates the same
+// shape for the prototype.
+const MOCK_ADMIN_CREDENTIALS = { username: "libermod01", password: "adminpassword12345" };
+
+// ---------- Real backend wiring ----------
+// Point this at your deployed API. Auth/posts now hit the real FastAPI
+// backend built earlier in this project — DM/media still run on local
+// mock state pending websocket + upload wiring (noted inline below).
+const API_BASE = "http://localhost:8000";
+
+async function api(path, { method = "GET", body, token, isFormData = false } = {}) {
+  const headers = {};
+  if (!isFormData) headers["Content-Type"] = "application/json";
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const resp = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
+  });
+
+  let data = null;
+  try { data = await resp.json(); } catch (_) { /* no body */ }
+
+  if (!resp.ok) {
+    const detail = data && data.detail ? (Array.isArray(data.detail) ? data.detail[0].msg : data.detail) : `Request failed (${resp.status})`;
+    throw new Error(detail);
+  }
+  return data;
+}
+
+const posts = [
+  { code: "0142", body: "Looking for someone to grab coffee and talk film photography. No pressure, just conversation.", location: "STONE TOWN", tags: ["FRIENDS","CASUAL"] },
+  { code: "0143", body: "New in town, want to meet people who are into diving and boat trips on weekends.", location: "NUNGWI", tags: ["ACTIVITY"] },
+  { code: "0144", body: "Sharing details of what I'm looking for tonight — tagged NSFW since the content is explicit.", location: "STONE TOWN", tags: ["CASUAL","NSFW"] },
+];
+
+const threads = {
+  "0142": {
+    postCode: "0142",
+    reported: false,
+    messages: [
+      { from: "them", text: "Hey — saw your post, I'm into film photography too. What do you shoot on?", time: "14:02" },
+      { from: "me", text: "Mostly an old Pentax K1000. You?", time: "14:04" },
+      { from: "them", text: "Nice. I want to send you a shot from my last roll.", time: "14:05", media: { id: "m1", type: "image", nsfw: false, nsfwAcknowledged: true } },
+    ],
+  },
+};
+
+const TIER1 = new Set(["underage", "threat", "nonconsensual"]);
+const TIER2 = new Set(["solicit", "harass", "unsolicited"]);
+
+function severityOf(reason) {
+  if (TIER1.has(reason)) return 1;
+  if (TIER2.has(reason)) return 2;
+  return 3;
+}
+
+let reportSeq = 4;
+const reports = [
+  {
+    id: "R-0001", reason: "underage", detail: "Profile bio mentions being 16.",
+    reportedHandle: "QuietFalcon42", reportedPostCode: "0091", createdAt: "2026-07-22 09:14",
+    status: "open", priorReportsAgainst: 0, priorReportsByReporter: 1,
+  },
+  {
+    id: "R-0002", reason: "harass", detail: "Kept messaging after I said I wasn't interested.",
+    reportedHandle: "IronOtter88", reportedPostCode: "0077", createdAt: "2026-07-22 11:30",
+    status: "open", priorReportsAgainst: 1, priorReportsByReporter: 3,
+  },
+  {
+    id: "R-0003", reason: "scam", detail: "Asked me to pay a deposit off-platform before meeting.",
+    reportedHandle: "SilverEcho19", reportedPostCode: "0064", createdAt: "2026-07-21 20:05",
+    status: "open", priorReportsAgainst: 2, priorReportsByReporter: 1,
+  },
+];
+const auditLog = [];
+
+// ---------- Helpers ----------
+function render() {
+  const root = document.getElementById("root");
+  root.innerHTML = "";
+  if (state.screen === "gate") root.appendChild(GateScreen());
+  if (state.screen === "signup") root.appendChild(SignupScreen());
+  if (state.screen === "otp") root.appendChild(OtpScreen());
+  if (state.screen === "login") root.appendChild(LoginScreen());
+  if (state.screen === "feed") root.appendChild(FeedScreen());
+  if (state.screen === "thread") root.appendChild(ThreadScreen());
+  if (state.screen === "mod") root.appendChild(state.adminAuthenticated ? ModScreen() : AdminLoginScreen());
+  if (state.screen === "adminLogin") root.appendChild(AdminLoginScreen());
+  if (state.viewerMedia) root.appendChild(MediaViewer());
+  if (state.reportModalOpen) root.appendChild(ReportModal());
+  if (state.composeModalOpen) root.appendChild(ComposeModal());
+  if (state.attachModalOpen) root.appendChild(AttachMediaModal());
+  if (state.toast) root.appendChild(Toast());
+}
+
+function el(tag, props = {}, children = []) {
+  const e = document.createElement(tag);
+  Object.entries(props).forEach(([k, v]) => {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2).toLowerCase(), v);
+    else e.setAttribute(k, v);
+  });
+  (Array.isArray(children) ? children : [children]).forEach((c) => {
+    if (typeof c === "string") e.appendChild(document.createTextNode(c));
+    else if (c) e.appendChild(c);
+  });
+  return e;
+}
+
+function showToast(text) {
+  state.toast = text;
+  render();
+  setTimeout(() => { state.toast = null; render(); }, 2200);
+}
+
+// ---------- Screens ----------
+function GateScreen() {
+  const points = [
+    "You must be 18 or older.",
+    "Identities are not verified. Treat every stranger as unverified.",
+    "Meeting in person is your decision and your risk. Meet public, tell a friend.",
+    "Report anything uncomfortable in two taps. Safety reports are reviewed first.",
+    "Zero tolerance for harm to minors. Reported to law enforcement, no exceptions.",
+    "Phone verification is required at signup — this is what lets us block repeat abuse and keep the platform accountable.",
+  ];
+
+  const wrap = el("div", { style: "flex:1; display:flex; align-items:center; padding:24px;" });
+  const panel = el("div", { class: "panel", style: "padding:20px; width:100%; display:flex; flex-direction:column; gap:6px;" });
+  panel.appendChild(el("span", { class: "label" }, "Read before continuing"));
+
+  points.forEach((text, i) => {
+    const row = el("div", { class: "interstitial-point" }, [
+      el("span", { class: "point-code" }, String(i + 1).padStart(2, "0")),
+      el("span", { class: "point-text" }, text),
+    ]);
+    panel.appendChild(row);
+  });
+
+  const checkboxRow = el("label", { class: "checkbox-row", style: "cursor:pointer;" });
+  const checkbox = el("input", { type: "checkbox" });
+  checkbox.addEventListener("change", (e) => { state.gateChecked = e.target.checked; render(); });
+  checkboxRow.appendChild(checkbox);
+  checkboxRow.appendChild(el("span", {}, "I confirm I am 18 or older and agree to the Community Guidelines."));
+  panel.appendChild(checkboxRow);
+
+  const btn = el("button", { class: "btn-primary", style: "margin-top:16px;" }, "Continue");
+  if (!state.gateChecked) btn.setAttribute("disabled", "true");
+  btn.addEventListener("click", () => { if (state.gateChecked) { state.screen = "signup"; render(); } });
+  panel.appendChild(btn);
+
+  const loginLink = el("button", { class: "btn-ghost", style: "margin-top:8px;" }, "Already have an account? Log in");
+  loginLink.addEventListener("click", () => { state.screen = "login"; render(); });
+  panel.appendChild(loginLink);
+
+  wrap.appendChild(panel);
+  return wrap;
+}
+
+function field(type, placeholder, extra = {}) {
+  const input = el("input", { type, placeholder, ...extra });
+  input.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff; width:100%;";
+  return input;
+}
+
+function SignupScreen() {
+  const wrap = el("div", { style: "flex:1; display:flex; align-items:center; padding:24px;" });
+  const panel = el("div", { class: "panel", style: "padding:20px; width:100%; display:flex; flex-direction:column; gap:10px;" });
+  panel.appendChild(el("span", { class: "label" }, "Create account"));
+
+  const phone = field("tel", "Phone number, e.g. +255700000000");
+  const handle = field("text", "Handle — how others see you");
+  const dob = field("date", "Date of birth");
+  const password = field("password", "Password (12+ characters)");
+  [phone, handle, dob, password].forEach((f) => panel.appendChild(f));
+
+  const errorMsg = el("span", { class: "label", style: "color:#B23B2E; display:none;" }, "");
+  panel.appendChild(errorMsg);
+
+  const submit = el("button", { class: "btn-primary" }, "Send verification code");
+  submit.addEventListener("click", async () => {
+    errorMsg.style.display = "none";
+    submit.textContent = "Sending...";
+    submit.disabled = true;
+    try {
+      await api("/auth/signup/start", {
+        method: "POST",
+        body: {
+          phone_number: phone.value.trim(),
+          dob: dob.value,
+          age_gate_accepted: true,
+          handle: handle.value.trim(),
+          password: password.value,
+        },
+      });
+      state.pendingSignup = { phoneNumber: phone.value.trim() };
+      state.screen = "otp";
+      render();
+    } catch (e) {
+      errorMsg.textContent = e.message;
+      errorMsg.style.display = "block";
+      submit.textContent = "Send verification code";
+      submit.disabled = false;
+    }
+  });
+  panel.appendChild(submit);
+
+  wrap.appendChild(panel);
+  return wrap;
+}
+
+function OtpScreen() {
+  const wrap = el("div", { style: "flex:1; display:flex; align-items:center; padding:24px;" });
+  const panel = el("div", { class: "panel", style: "padding:20px; width:100%; display:flex; flex-direction:column; gap:10px;" });
+  panel.appendChild(el("span", { class: "label" }, "Enter verification code"));
+  panel.appendChild(el("p", { style: "font-size:13px; color:#8C8A82;" },
+    `A code was sent to ${state.pendingSignup.phoneNumber}.`));
+
+  const code = field("text", "6-digit code");
+  panel.appendChild(code);
+
+  const errorMsg = el("span", { class: "label", style: "color:#B23B2E; display:none;" }, "");
+  panel.appendChild(errorMsg);
+
+  const submit = el("button", { class: "btn-primary" }, "Verify");
+  submit.addEventListener("click", async () => {
+    errorMsg.style.display = "none";
+    try {
+      const resp = await api("/auth/signup/verify", {
+        method: "POST",
+        body: { phone_number: state.pendingSignup.phoneNumber, otp_code: code.value.trim() },
+      });
+      state.authToken = resp.access_token;
+      state.pendingSignup = null;
+      state.screen = "feed";
+      render();
+      loadFeed();
+    } catch (e) {
+      errorMsg.textContent = e.message;
+      errorMsg.style.display = "block";
+    }
+  });
+  panel.appendChild(submit);
+
+  wrap.appendChild(panel);
+  return wrap;
+}
+
+function LoginScreen() {
+  const wrap = el("div", { style: "flex:1; display:flex; align-items:center; padding:24px;" });
+  const panel = el("div", { class: "panel", style: "padding:20px; width:100%; display:flex; flex-direction:column; gap:10px;" });
+  panel.appendChild(el("span", { class: "label" }, "Log in"));
+
+  const phone = field("tel", "Phone number");
+  const password = field("password", "Password");
+  panel.appendChild(phone);
+  panel.appendChild(password);
+
+  const errorMsg = el("span", { class: "label", style: "color:#B23B2E; display:none;" }, "");
+  panel.appendChild(errorMsg);
+
+  const submit = el("button", { class: "btn-primary" }, "Log in");
+  submit.addEventListener("click", async () => {
+    errorMsg.style.display = "none";
+    try {
+      const resp = await api("/auth/login", {
+        method: "POST",
+        body: { phone_number: phone.value.trim(), password: password.value },
+      });
+      state.authToken = resp.access_token;
+      state.screen = "feed";
+      render();
+      loadFeed();
+    } catch (e) {
+      errorMsg.textContent = e.message;
+      errorMsg.style.display = "block";
+    }
+  });
+  panel.appendChild(submit);
+
+  wrap.appendChild(panel);
+  return wrap;
+}
+
+async function loadFeed() {
+  state.feedLoading = true;
+  render();
+  try {
+    const data = await api("/posts/feed", { token: state.authToken });
+    posts.length = 0; // clear mock seed data, replace with real posts
+    data.forEach((p) => {
+      posts.push({
+        id: p.id,
+        code: p.id.slice(0, 8).toUpperCase(),
+        body: p.body_text,
+        location: p.location_label || "NO LOCATION SET",
+        tags: p.intent_tags && p.intent_tags.length ? p.intent_tags : ["OTHER"],
+      });
+    });
+  } catch (e) {
+    showToast("Could not load feed: " + e.message);
+  } finally {
+    state.feedLoading = false;
+    render();
+  }
+}
+
+function openThread(code) {
+  if (!threads[code]) threads[code] = { postCode: code, reported: false, messages: [] };
+  state.activeThreadId = code;
+  state.screen = "thread";
+  render();
+}
+
+function FeedScreen() {
+  const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
+  wrap.appendChild(Header("Liberchat", null));
+
+  const main = el("main", { class: "feed-main" });
+  posts.forEach((p) => {
+    const card = el("div", { class: "post panel", style: "cursor:pointer;" });
+    card.addEventListener("click", () => openThread(p.code));
+
+    card.appendChild(el("div", { class: "post-top" }, [
+      el("span", { class: "label" }, `POST / ${p.code}`),
+      el("span", { class: "label" }, p.location),
+    ]));
+
+    card.appendChild(el("p", { class: "post-body" }, p.body));
+
+    const bottom = el("div", { class: "post-bottom" });
+    bottom.appendChild(el("div", { class: "tags" }, p.tags.map((t) =>
+      el("span", { class: t === "NSFW" ? "tag" : "tag", style: t === "NSFW" ? "border-color:#B23B2E; color:#B23B2E;" : "" }, t)
+    )));
+    const respondBtn = el("button", { class: "btn-secondary" }, "Respond");
+    respondBtn.addEventListener("click", (e) => { e.stopPropagation(); openThread(p.code); });
+    bottom.appendChild(respondBtn);
+    card.appendChild(bottom);
+
+    main.appendChild(card);
+  });
+  wrap.appendChild(main);
+  return wrap;
+}
+
+
+
+function Header(title, onBack) {
+  const h = el("header", {});
+  const left = onBack
+    ? (() => { const b = el("button", { class: "btn-ghost" }, "← Back"); b.addEventListener("click", onBack); return b; })()
+    : el("span", { class: "wordmark" }, title);
+  h.appendChild(left);
+  if (onBack) {
+    const reportBtn = el("button", { class: "btn-danger" }, "Report");
+    reportBtn.addEventListener("click", () => { state.reportModalOpen = true; render(); });
+    h.appendChild(reportBtn);
+  } else {
+    const newPostBtn = el("button", { class: "btn-secondary" }, "New post");
+    newPostBtn.addEventListener("click", () => { state.composeModalOpen = true; render(); });
+    h.appendChild(newPostBtn);
+  }
+  return h;
+}
+
+function ThreadScreen() {
+  const thread = threads[state.activeThreadId];
+  const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
+  wrap.appendChild(Header(`THREAD / ${thread.postCode}`, () => { state.screen = "feed"; render(); }));
+
+  const msgsWrap = el("div", { class: "thread-msgs" });
+
+  if (thread.reported) {
+    msgsWrap.appendChild(el("div", { class: "empty" }, "This thread has been reported. It's frozen for review — the other person can't send new messages."));
+  }
+
+  if (thread.messages.length === 0) {
+    msgsWrap.appendChild(el("div", { class: "empty" }, "No messages yet. Say hello."));
+  }
+
+  thread.messages.forEach((m) => {
+    const bubble = el("div", { class: `msg ${m.from}` });
+    if (m.text) bubble.appendChild(document.createTextNode(m.text));
+    if (m.media) {
+      let chip;
+      if (m.media.consumed) {
+        chip = el("div", { class: "media-chip consumed" },
+          `${m.media.type.toUpperCase()} — VIEWED ${m.media.viewCount || 1}× — DELETED`);
+      } else if (m.media.nsfw && !m.media.nsfwAcknowledged) {
+        chip = el("div", {
+          class: "media-chip",
+          style: "border-color:#B23B2E; color:#B23B2E; background:repeating-linear-gradient(45deg,#F7F6F2,#F7F6F2 6px,#EDECE7 6px,#EDECE7 12px);",
+        }, `⚠ NSFW ${m.media.type.toUpperCase()} — TAP TO REVEAL`);
+        chip.addEventListener("click", () => { m.media.nsfwAcknowledged = true; render(); });
+      } else {
+        chip = el("div", { class: "media-chip" }, `TAP TO VIEW ${m.media.type.toUpperCase()} — VIEW ONCE`);
+        chip.addEventListener("click", () => {
+          state.viewerMedia = m.media;
+          if (!state.viewerMedia.viewCount) state.viewerMedia.viewCount = 0;
+          state.viewerMedia.viewCount += 1;
+          render();
+        });
+      }
+      bubble.appendChild(document.createElement("br"));
+      bubble.appendChild(chip);
+    }
+    bubble.appendChild(el("span", { class: "msg-meta" }, m.time));
+    msgsWrap.appendChild(bubble);
+  });
+
+  wrap.appendChild(msgsWrap);
+
+  const composer = el("div", { class: "composer" });
+  const input = el("input", { type: "text", placeholder: thread.reported ? "This thread is frozen." : "Message — encrypted end to end" });
+  if (thread.reported) input.setAttribute("disabled", "true");
+  const mediaBtn = el("button", { class: "icon-btn" }, "＋");
+  mediaBtn.addEventListener("click", () => {
+    if (thread.reported) return;
+    state.attachModalOpen = true;
+    render();
+  });
+  const sendBtn = el("button", { class: "btn-secondary" }, "Send");
+  sendBtn.addEventListener("click", () => {
+    if (thread.reported) return;
+    if (!input.value.trim()) return;
+    thread.messages.push({ from: "me", text: input.value.trim(), time: nowTime() });
+    input.value = "";
+    render();
+  });
+  composer.appendChild(mediaBtn);
+  composer.appendChild(input);
+  composer.appendChild(sendBtn);
+  wrap.appendChild(composer);
+
+  return wrap;
+}
+
+function AdminLoginScreen() {
+  const wrap = el("div", { style: "flex:1; display:flex; align-items:center; padding:24px;" });
+  const panel = el("div", { class: "panel", style: "padding:24px; width:100%; display:flex; flex-direction:column; gap:14px;" });
+
+  panel.appendChild(el("span", { class: "label" }, "Admin access"));
+  panel.appendChild(el("p", { style: "font-size:13px; color:#8C8A82; line-height:1.5;" },
+    "This is a separate login from regular LiberChat accounts. Admin credentials are issued out-of-band and are never created through the app."));
+
+  const userInput = el("input", { type: "text", placeholder: "Admin username", autocomplete: "off" });
+  userInput.style.cssText = "font-family:'IBM Plex Mono',monospace; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff;";
+  const passInput = el("input", { type: "password", placeholder: "Password" });
+  passInput.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff;";
+
+  panel.appendChild(userInput);
+  panel.appendChild(passInput);
+
+  if (state.adminLoginError) {
+    panel.appendChild(el("span", { class: "label", style: "color:#B23B2E;" }, state.adminLoginError));
+  }
+
+  const submit = el("button", { class: "btn-primary" }, "Sign in");
+  submit.addEventListener("click", () => {
+    // In the real app this calls POST /admin/login against the separate
+    // admin_users table and receives a token typed "admin" — a regular
+    // user's token/credentials can never satisfy this, in either direction.
+    if (userInput.value === MOCK_ADMIN_CREDENTIALS.username && passInput.value === MOCK_ADMIN_CREDENTIALS.password) {
+      state.adminAuthenticated = true;
+      state.adminLoginError = null;
+      state.screen = "mod";
+      render();
+    } else {
+      state.adminLoginError = "Invalid credentials.";
+      render();
+    }
+  });
+  panel.appendChild(submit);
+
+  wrap.appendChild(panel);
+  return wrap;
+}
+
+function ModScreen() {
+  const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
+
+  const header = el("header", {});
+  const back = el("button", { class: "btn-ghost" }, "← Sign out");
+  back.addEventListener("click", () => {
+    state.adminAuthenticated = false;
+    state.screen = "feed";
+    state.modSelectedReportId = null;
+    render();
+  });
+  header.appendChild(back);
+  header.appendChild(el("span", { class: "label" }, "MOD CONSOLE"));
+  wrap.appendChild(header);
+
+  const tabs = el("div", { style: "display:flex; border-bottom:1px solid #C9C7BC;" });
+  ["queue", "audit"].forEach((tab) => {
+    const t = el("button", {
+      style: `flex:1; padding:12px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; border-bottom:2px solid ${state.modTab === tab ? "#FF4B1F" : "transparent"}; color:${state.modTab === tab ? "#141414" : "#8C8A82"};`,
+    }, tab === "queue" ? `Queue (${reports.filter(r=>r.status==="open").length})` : `Audit log (${auditLog.length})`);
+    t.addEventListener("click", () => { state.modTab = tab; state.modSelectedReportId = null; render(); });
+    tabs.appendChild(t);
+  });
+  wrap.appendChild(tabs);
+
+  const main = el("main", {});
+
+  if (state.modTab === "queue") {
+    const open = reports.filter((r) => r.status === "open").sort((a, b) => severityOf(a.reason) - severityOf(b.reason));
+    if (open.length === 0) main.appendChild(el("div", { class: "empty" }, "Queue is empty."));
+    open.forEach((r) => main.appendChild(state.modSelectedReportId === r.id ? CaseDetail(r) : QueueRow(r)));
+  } else {
+    if (auditLog.length === 0) main.appendChild(el("div", { class: "empty" }, "No resolved cases yet."));
+    auditLog.slice().reverse().forEach((r) => main.appendChild(AuditRow(r)));
+  }
+
+  wrap.appendChild(main);
+  return wrap;
+}
+
+function severityLabel(reason) {
+  const s = severityOf(reason);
+  if (s === 1) return { text: "TIER 1", color: "#B23B2E" };
+  if (s === 2) return { text: "TIER 2", color: "#C97A00" };
+  return { text: "TIER 3", color: "#8C8A82" };
+}
+
+function QueueRow(r) {
+  const sev = severityLabel(r.reason);
+  const row = el("div", { class: "panel", style: `padding:14px; margin-bottom:10px; border-left:3px solid ${sev.color}; cursor:pointer;` });
+  row.addEventListener("click", () => { state.modSelectedReportId = r.id; render(); });
+  row.appendChild(el("div", { style: "display:flex; justify-content:space-between;" }, [
+    el("span", { class: "label", style: `color:${sev.color};` }, `${sev.text} — ${r.reason.toUpperCase()}`),
+    el("span", { class: "label" }, r.id),
+  ]));
+  row.appendChild(el("p", { style: "font-size:13px; margin-top:8px;" }, r.detail));
+  row.appendChild(el("div", { style: "display:flex; justify-content:space-between; margin-top:8px;" }, [
+    el("span", { class: "label" }, `@${r.reportedHandle} · POST/${r.reportedPostCode}`),
+    el("span", { class: "label" }, r.createdAt),
+  ]));
+  return row;
+}
+
+function CaseDetail(r) {
+  const sev = severityLabel(r.reason);
+  const wrap = el("div", { class: "panel", style: `padding:16px; margin-bottom:10px; border-left:3px solid ${sev.color};` });
+
+  wrap.appendChild(el("div", { style: "display:flex; justify-content:space-between;" }, [
+    el("span", { class: "label", style: `color:${sev.color};` }, `${sev.text} — ${r.reason.toUpperCase()}`),
+    el("span", { class: "label" }, r.id),
+  ]));
+  wrap.appendChild(el("p", { style: "font-size:14px; margin:10px 0; line-height:1.5;" }, r.detail));
+
+  const meta = el("div", { class: "label", style: "display:flex; flex-direction:column; gap:4px; border-top:1px solid #C9C7BC; border-bottom:1px solid #C9C7BC; padding:10px 0; margin-bottom:10px;" });
+  meta.appendChild(el("span", {}, `Reported user: @${r.reportedHandle}`));
+  meta.appendChild(el("span", {}, `Source: POST/${r.reportedPostCode}`));
+  meta.appendChild(el("span", {}, `Prior reports against this user: ${r.priorReportsAgainst}`));
+  meta.appendChild(el("span", {}, `Prior reports filed by this reporter: ${r.priorReportsByReporter}`));
+  wrap.appendChild(meta);
+
+  const noteArea = document.createElement("textarea");
+  noteArea.placeholder = "Required: note explaining your decision before this case can close.";
+  noteArea.style.cssText = "font-family:'Inter'; font-size:14px; padding:10px; min-height:70px; border:1px solid #C9C7BC; background:#fff; width:100%; margin-bottom:10px;";
+  wrap.appendChild(noteArea);
+
+  const errorMsg = el("span", { class: "label", style: "color:#B23B2E; display:none; margin-bottom:8px;" }, "A note is required to close this case.");
+  wrap.appendChild(errorMsg);
+
+  const actions = [
+    { key: "dismiss", label: "Dismiss" },
+    { key: "remove_content", label: "Remove content" },
+    { key: "remove_and_strike", label: "Remove + strike" },
+    { key: "remove_and_ban", label: "Remove + ban" },
+  ];
+  if (sev.text === "TIER 1") {
+    actions.push({ key: "remove_ban_and_report_ncmec", label: "Remove + ban + report to NCMEC", danger: true });
+  }
+
+  const actionGrid = el("div", { style: "display:flex; flex-direction:column; gap:8px;" });
+  actions.forEach((a) => {
+    const b = el("button", { class: a.danger ? "btn-danger" : "btn-secondary", style: "width:100%; text-align:center;" }, a.label);
+    b.addEventListener("click", () => {
+      if (!noteArea.value.trim()) { errorMsg.style.display = "block"; return; }
+      r.status = "resolved";
+      r.modAction = a.key;
+      r.modNote = noteArea.value.trim();
+      r.resolvedAt = new Date().toISOString().slice(0, 16).replace("T", " ");
+      auditLog.push(r);
+      state.modSelectedReportId = null;
+      render();
+      showToast(a.danger ? "Case closed — routed to NCMEC review" : "Case closed");
+    });
+    actionGrid.appendChild(b);
+  });
+  wrap.appendChild(actionGrid);
+
+  const cancel = el("button", { class: "btn-ghost", style: "margin-top:8px;" }, "Close without deciding");
+  cancel.addEventListener("click", () => { state.modSelectedReportId = null; render(); });
+  wrap.appendChild(cancel);
+
+  return wrap;
+}
+
+function AuditRow(r) {
+  const row = el("div", { class: "panel", style: "padding:14px; margin-bottom:10px;" });
+  row.appendChild(el("div", { style: "display:flex; justify-content:space-between;" }, [
+    el("span", { class: "label" }, r.id),
+    el("span", { class: "label" }, r.resolvedAt),
+  ]));
+  row.appendChild(el("p", { style: "font-size:13px; margin-top:8px;" }, `Action: ${r.modAction.replace(/_/g, " ")}`));
+  row.appendChild(el("p", { style: "font-size:13px; color:#8C8A82; margin-top:4px;" }, `Note: ${r.modNote}`));
+  return row;
+}
+
+function nowTime() {
+  const d = new Date();
+  return d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0");
+}
+
+function MediaViewer() {
+  const media = state.viewerMedia;
+  const wrap = el("div", { class: "viewer" });
+  wrap.appendChild(el("div", { class: "viewer-top" }, [
+    el("span", { class: "label", style: "color:#888;" }, `${media.type.toUpperCase()} / VIEWED ${media.viewCount}×`),
+    (() => {
+      const b = el("button", { class: "btn-danger" }, "Close — deletes on exit");
+      b.addEventListener("click", () => {
+        // session ends -> mark consumed in the underlying thread message
+        const thread = threads[state.activeThreadId];
+        const msg = thread.messages.find((m) => m.media && m.media.id === media.id);
+        if (msg) { msg.media.consumed = true; msg.media.viewCount = media.viewCount; }
+        state.viewerMedia = null;
+        render();
+        showToast("Media deleted from server");
+      });
+      return b;
+    })(),
+  ]));
+  const replay = el("button", { class: "btn-secondary", style: "margin:0 auto;" }, "Replay (within this session)");
+  replay.addEventListener("click", () => { media.viewCount += 1; render(); });
+  wrap.appendChild(el("div", { class: "viewer-body" }, [
+    el("div", {}, [
+      el("span", { class: "label" }, "[ MEDIA PLAYBACK AREA ]"),
+      el("div", { style: "margin-top:20px;" }, replay),
+    ]),
+  ]));
+  wrap.appendChild(el("div", { class: "viewer-bottom" }, el("span", { class: "label", style: "color:#666;" }, "This content deletes permanently when you leave this screen.")));
+  return wrap;
+}
+
+function ReportModal() {
+  const reasons = [
+    { key: "underage", label: "Underage or suspected minor", tier1: true },
+    { key: "threat", label: "Threats or made me feel unsafe", tier1: true },
+    { key: "nonconsensual", label: "Non-consensual media", tier1: true },
+    { key: "solicit", label: "Soliciting payment / prostitution" },
+    { key: "harass", label: "Harassment or abusive language" },
+    { key: "unsolicited", label: "Unsolicited explicit media" },
+    { key: "scam", label: "Scam or off-platform payment request" },
+    { key: "other", label: "Other" },
+  ];
+  const backdrop = el("div", { class: "modal-backdrop" });
+  const modal = el("div", { class: "modal" });
+  modal.appendChild(el("span", { class: "label" }, "Report this thread"));
+  reasons.forEach((r) => {
+    const b = el("button", { class: r.tier1 ? "reason-btn tier1" : "reason-btn" }, r.label);
+    b.addEventListener("click", () => {
+      const thread = threads[state.activeThreadId];
+      thread.reported = true;
+      state.reportModalOpen = false;
+      render();
+      showToast(r.tier1 ? "Reported — priority review, sender restricted" : "Reported — thread frozen for review");
+    });
+    modal.appendChild(b);
+  });
+  const cancel = el("button", { class: "btn-ghost", style: "margin-top:6px;" }, "Cancel");
+  cancel.addEventListener("click", () => { state.reportModalOpen = false; render(); });
+  modal.appendChild(cancel);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) { state.reportModalOpen = false; render(); } });
+  return backdrop;
+}
+
+function AttachMediaModal() {
+  const backdrop = el("div", { class: "modal-backdrop" });
+  const modal = el("div", { class: "modal" });
+  modal.appendChild(el("span", { class: "label" }, "Attach media — view once"));
+  modal.appendChild(el("p", { style: "font-size:13px; color:#8C8A82; line-height:1.5;" },
+    "The recipient can view this once. It's permanently deleted the moment they leave the viewer."));
+
+  let selectedType = "image";
+  const typeRow = el("div", { style: "display:flex; gap:6px;" });
+  ["image", "video", "audio"].forEach((type) => {
+    const chip = el("button", {
+      class: "tag",
+      style: `cursor:pointer; padding:10px 14px; ${type === selectedType ? "background:#141414; color:#F7F6F2;" : ""}`,
+    }, type.toUpperCase());
+    chip.addEventListener("click", () => {
+      selectedType = type;
+      [...typeRow.children].forEach((c) => { c.style.background = "transparent"; c.style.color = "#8C8A82"; });
+      chip.style.background = "#141414";
+      chip.style.color = "#F7F6F2";
+    });
+    typeRow.appendChild(chip);
+  });
+  modal.appendChild(typeRow);
+
+  let markedNsfw = false;
+  const nsfwRow = el("label", { style: "display:flex; align-items:center; gap:10px; cursor:pointer; padding-top:6px;" });
+  const nsfwCheckbox = el("input", { type: "checkbox" });
+  nsfwCheckbox.addEventListener("change", (e) => { markedNsfw = e.target.checked; });
+  nsfwRow.appendChild(nsfwCheckbox);
+  nsfwRow.appendChild(el("span", { style: "font-size:13px; color:#B23B2E;" }, "Tag this NSFW — recipient sees a warning before it reveals"));
+  modal.appendChild(nsfwRow);
+
+  const sendBtn = el("button", { class: "btn-primary" }, "Send");
+  sendBtn.addEventListener("click", () => {
+    const thread = threads[state.activeThreadId];
+    thread.messages.push({
+      from: "me",
+      time: nowTime(),
+      media: {
+        id: "m" + Math.random().toString(36).slice(2, 7),
+        type: selectedType,
+        nsfw: markedNsfw,
+        nsfwAcknowledged: !markedNsfw,
+      },
+    });
+    state.attachModalOpen = false;
+    render();
+    showToast("Media sent — recipient can view once");
+  });
+  modal.appendChild(sendBtn);
+
+  const cancel = el("button", { class: "btn-ghost" }, "Cancel");
+  cancel.addEventListener("click", () => { state.attachModalOpen = false; render(); });
+  modal.appendChild(cancel);
+
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) { state.attachModalOpen = false; render(); } });
+  return backdrop;
+}
+
+function ComposeModal() {
+  const backdrop = el("div", { class: "modal-backdrop" });
+  const modal = el("div", { class: "modal" });
+  modal.appendChild(el("span", { class: "label" }, "New post"));
+
+  const textarea = document.createElement("textarea");
+  textarea.placeholder = "What are you looking for? Be specific about intent — vague posts get fewer responses.";
+  textarea.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px; min-height:100px; border:1px solid #C9C7BC; background:#fff; resize:vertical; width:100%;";
+  modal.appendChild(textarea);
+
+  const locationInput = el("input", { type: "text", placeholder: "Location — neighborhood only, e.g. STONE TOWN" });
+  locationInput.style.cssText = "font-family:'IBM Plex Mono',monospace; font-size:14px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff; width:100%; text-transform:uppercase;";
+  modal.appendChild(locationInput);
+
+  const availableTags = ["CASUAL", "FRIENDS", "ACTIVITY", "SERIOUS", "NSFW", "OTHER"];
+  const selectedTags = new Set();
+  const tagRow = el("div", { style: "display:flex; gap:6px; flex-wrap:wrap;" });
+  availableTags.forEach((tag) => {
+    const chip = el("button", { class: "tag", style: `cursor:pointer; padding:8px 10px; ${tag === "NSFW" ? "border-color:#B23B2E; color:#B23B2E;" : ""}` }, tag);
+    chip.addEventListener("click", () => {
+      if (selectedTags.has(tag)) {
+        selectedTags.delete(tag);
+        chip.style.background = "transparent";
+        chip.style.color = tag === "NSFW" ? "#B23B2E" : "#8C8A82";
+      } else {
+        selectedTags.add(tag);
+        chip.style.background = tag === "NSFW" ? "#B23B2E" : "#141414";
+        chip.style.color = "#F7F6F2";
+      }
+    });
+    tagRow.appendChild(chip);
+  });
+  modal.appendChild(tagRow);
+
+  const errorMsg = el("span", { class: "label", style: "color:#B23B2E; display:none;" }, "Post text is required.");
+  modal.appendChild(errorMsg);
+
+  const submitBtn = el("button", { class: "btn-primary" }, "Post");
+  submitBtn.addEventListener("click", async () => {
+    if (!textarea.value.trim()) {
+      errorMsg.style.display = "block";
+      return;
+    }
+    const tags = selectedTags.size ? Array.from(selectedTags) : ["OTHER"];
+    submitBtn.textContent = "Posting...";
+    submitBtn.disabled = true;
+    try {
+      await api("/posts/", {
+        method: "POST",
+        token: state.authToken,
+        body: {
+          body_text: textarea.value.trim(),
+          intent_tags: tags,
+          location_label: locationInput.value.trim().toUpperCase() || null,
+        },
+      });
+      state.composeModalOpen = false;
+      render();
+      showToast("Post published");
+      loadFeed();
+    } catch (e) {
+      errorMsg.textContent = e.message;
+      errorMsg.style.display = "block";
+      submitBtn.textContent = "Post";
+      submitBtn.disabled = false;
+    }
+  });
+  modal.appendChild(submitBtn);
+
+  const cancel = el("button", { class: "btn-ghost" }, "Cancel");
+  cancel.addEventListener("click", () => { state.composeModalOpen = false; render(); });
+  modal.appendChild(cancel);
+
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) { state.composeModalOpen = false; render(); } });
+  return backdrop;
+}
+
+function Toast() {
+  return el("div", { class: "toast" }, state.toast);
+}
+
+// Admin console is reachable ONLY via a direct URL (e.g. yourapp.com/#admin),
+// never via any link, button, or nav item inside the regular app. A normal
+// user browsing LiberChat has no path that leads here.
+if (window.location.hash === "#admin") {
+  state.screen = "adminLogin";
+}
+
+render();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      // Fails silently if served from file:// or a host that blocks SW —
+      // app still works as a normal page, just not installable.
+    });
+  });
+}
+</script>
+</body>
+</html>
