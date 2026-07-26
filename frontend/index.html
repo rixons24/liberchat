@@ -40,11 +40,14 @@
   header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid #C9C7BC; }
   .wordmark { font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; cursor:pointer; }
   button { font-family: 'IBM Plex Mono', monospace; cursor: pointer; background: none; }
-  .btn-secondary { color: #141414; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 14px; min-height:44px; border: 1px solid #141414; }
-  .btn-primary { background: #FF4B1F; color: #F7F6F2; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; padding: 14px 20px; min-height:48px; border: 1px solid #FF4B1F; width: 100%; }
+  /* Uniform box padding scale: 12px vertical / 16px horizontal for all
+     standard buttons and inputs, 44px minimum touch target height.
+     Only the compact chip/tag elements use a smaller scale. */
+  .btn-secondary { color: #141414; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid #141414; }
+  .btn-primary { background: #FF4B1F; color: #F7F6F2; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid #FF4B1F; width: 100%; }
   .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
-  .btn-danger { color: #B23B2E; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid #B23B2E; padding: 10px 12px; min-height:40px; }
-  .btn-ghost { color: #8C8A82; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 0; }
+  .btn-danger { color: #B23B2E; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid #B23B2E; }
+  .btn-ghost { color: #8C8A82; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 0; }
   main { flex: 1; min-height: 0; padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .post { display: flex; flex-direction: column; gap: 12px; padding: 16px; margin-bottom: 12px; }
   .post-top { display: flex; justify-content: space-between; }
@@ -67,7 +70,7 @@
   .media-chip.consumed { border-style:solid; color:#8C8A82; cursor:default; }
   .composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid #C9C7BC; align-items:center;
               padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-  .composer input[type=text] { flex:1; font-family:'Inter'; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#F7F6F2; }
+  .composer input[type=text] { flex:1; font-family:'Inter'; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; background:#F7F6F2; }
   .icon-btn { border:1px solid #C9C7BC; padding:10px 12px; font-size:16px; min-width:44px; min-height:44px; }
   .viewer { position:fixed; inset:0; background:#141414; color:#F7F6F2; display:flex; flex-direction:column; z-index:50; }
   .viewer-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #333; }
@@ -75,7 +78,7 @@
   .viewer-bottom { padding: 12px 16px; border-top: 1px solid #333; }
   .modal-backdrop { position:fixed; inset:0; background:rgba(20,20,20,0.55); display:flex; align-items:flex-end; z-index:60; }
   .modal { background:#F7F6F2; border-top:1px solid #C9C7BC; width:100%; padding:20px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; max-width:420px; margin:0 auto; max-height:80vh; overflow-y:auto; }
-  .reason-btn { text-align:left; padding:14px 12px; min-height:44px; border:1px solid #C9C7BC; font-family:'Inter'; font-size:14px; background:#fff; }
+  .reason-btn { text-align:left; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; font-family:'Inter'; font-size:14px; background:#fff; }
   .reason-btn.tier1 { border-color:#B23B2E; }
   .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#141414; color:#F7F6F2; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 18px; z-index:70; }
   .empty { text-align:center; padding:40px 20px; color:#8C8A82; font-size:13px; grid-column: 1 / -1; }
@@ -87,7 +90,7 @@
 <script>
 // ---------- Mock state ----------
 const state = {
-  screen: "gate",          // gate | feed | thread | mod | adminLogin
+  screen: "landing",       // landing | gate | signup | otp | login | feed | thread | mod | adminLogin
   gateChecked: false,
   activeThreadId: null,
   toast: null,
@@ -186,6 +189,7 @@ const auditLog = [];
 function render() {
   const root = document.getElementById("root");
   root.innerHTML = "";
+  if (state.screen === "landing") root.appendChild(LandingScreen());
   if (state.screen === "gate") root.appendChild(GateScreen());
   if (state.screen === "signup") root.appendChild(SignupScreen());
   if (state.screen === "otp") root.appendChild(OtpScreen());
@@ -222,19 +226,42 @@ function showToast(text) {
 }
 
 // ---------- Screens ----------
+function LandingScreen() {
+  const wrap = el("div", { style: "flex:1; display:flex; align-items:center; padding:24px;" });
+  const panel = el("div", { class: "panel", style: "padding:28px 20px; width:100%; display:flex; flex-direction:column; gap:16px; text-align:center;" });
+
+  panel.appendChild(el("span", { class: "wordmark", style: "font-size:20px;" }, "Welcome to LiberChat"));
+  panel.appendChild(el("p", { style: "font-size:14px; color:#8C8A82; line-height:1.5;" },
+    "Speak freely. Meet safely."));
+
+  const signupBtn = el("button", { class: "btn-primary" }, "Sign up");
+  signupBtn.addEventListener("click", () => { state.screen = "gate"; render(); });
+
+  const loginBtn = el("button", { class: "btn-secondary" }, "Log in");
+  loginBtn.addEventListener("click", () => { state.screen = "login"; render(); });
+
+  panel.appendChild(signupBtn);
+  panel.appendChild(loginBtn);
+
+  wrap.appendChild(panel);
+  return wrap;
+}
+
 function GateScreen() {
   const points = [
-    "You must be 18 or older.",
-    "Identities are not verified. Treat every stranger as unverified.",
-    "Meeting in person is your decision and your risk. Meet public, tell a friend.",
-    "Report anything uncomfortable in two taps. Safety reports are reviewed first.",
-    "Zero tolerance for harm to minors. Reported to law enforcement, no exceptions.",
+    "You must be 18 or older to use LiberChat. Misrepresenting your age is a permanent ban.",
+    "Identities are not verified beyond a phone number. Treat every stranger as unverified.",
+    "Never allowed, no exceptions: any sexual content involving minors, threats of violence, or non-consensual media. These are reported to law enforcement.",
+    "Not allowed: harassment, hate speech, doxxing, impersonation, solicitation of commercial sex, spam, or scams.",
+    "Meeting in person is your decision and your risk. Meet public first, tell a friend where you're going.",
+    "Report anything uncomfortable in two taps, from any post or message. Safety reports are reviewed first, before anything else in the queue.",
+    "We do not tell a reported user who reported them.",
     "Phone verification is required at signup — this is what lets us block repeat abuse and keep the platform accountable.",
   ];
 
   const wrap = el("div", { style: "flex:1; display:flex; align-items:center; padding:24px;" });
-  const panel = el("div", { class: "panel", style: "padding:20px; width:100%; display:flex; flex-direction:column; gap:6px;" });
-  panel.appendChild(el("span", { class: "label" }, "Read before continuing"));
+  const panel = el("div", { class: "panel", style: "padding:20px; width:100%; display:flex; flex-direction:column; gap:8px;" });
+  panel.appendChild(el("span", { class: "label" }, "Community guidelines — read before continuing"));
 
   points.forEach((text, i) => {
     const row = el("div", { class: "interstitial-point" }, [
@@ -246,6 +273,7 @@ function GateScreen() {
 
   const checkboxRow = el("label", { class: "checkbox-row", style: "cursor:pointer;" });
   const checkbox = el("input", { type: "checkbox" });
+  checkbox.checked = state.gateChecked;
   checkbox.addEventListener("change", (e) => { state.gateChecked = e.target.checked; render(); });
   checkboxRow.appendChild(checkbox);
   checkboxRow.appendChild(el("span", {}, "I confirm I am 18 or older and agree to the Community Guidelines."));
@@ -256,9 +284,10 @@ function GateScreen() {
   btn.addEventListener("click", () => { if (state.gateChecked) { state.screen = "signup"; render(); } });
   panel.appendChild(btn);
 
-  const loginLink = el("button", { class: "btn-ghost", style: "margin-top:8px;" }, "Already have an account? Log in");
-  loginLink.addEventListener("click", () => { state.screen = "login"; render(); });
-  panel.appendChild(loginLink);
+  const backLink = el("button", { class: "btn-ghost", style: "margin-top:8px;" }, "← Back");
+  backLink.addEventListener("click", () => { state.screen = "landing"; render(); });
+  panel.appendChild(backLink);
+
 
   wrap.appendChild(panel);
   return wrap;
@@ -277,7 +306,7 @@ function clearSession() {
 }
 function field(type, placeholder, extra = {}) {
   const input = el("input", { type, placeholder, ...extra });
-  input.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff; width:100%;";
+  input.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; background:#fff; width:100%;";
   return input;
 }
 
@@ -322,6 +351,10 @@ function SignupScreen() {
     }
   });
   panel.appendChild(submit);
+
+  const backLink = el("button", { class: "btn-ghost", style: "margin-top:8px;" }, "← Back");
+  backLink.addEventListener("click", () => { state.screen = "gate"; render(); });
+  panel.appendChild(backLink);
 
   wrap.appendChild(panel);
   return wrap;
@@ -396,10 +429,13 @@ function LoginScreen() {
   });
   panel.appendChild(submit);
 
+  const backLink = el("button", { class: "btn-ghost", style: "margin-top:8px;" }, "← Back");
+  backLink.addEventListener("click", () => { state.screen = "landing"; render(); });
+  panel.appendChild(backLink);
+
   wrap.appendChild(panel);
   return wrap;
 }
-
 async function loadFeed() {
   state.feedLoading = true;
   render();
@@ -646,9 +682,9 @@ function AdminLoginScreen() {
     "This is a separate login from regular LiberChat accounts. Admin credentials are issued out-of-band and are never created through the app."));
 
   const userInput = el("input", { type: "text", placeholder: "Admin username", autocomplete: "off" });
-  userInput.style.cssText = "font-family:'IBM Plex Mono',monospace; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff;";
+  userInput.style.cssText = "font-family:'IBM Plex Mono',monospace; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; background:#fff;";
   const passInput = el("input", { type: "password", placeholder: "Password" });
-  passInput.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff;";
+  passInput.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; background:#fff;";
 
   panel.appendChild(userInput);
   panel.appendChild(passInput);
@@ -1010,11 +1046,11 @@ function ComposeModal() {
 
   const textarea = document.createElement("textarea");
   textarea.placeholder = "What are you looking for? Be specific about intent — vague posts get fewer responses.";
-  textarea.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px; min-height:100px; border:1px solid #C9C7BC; background:#fff; resize:vertical; width:100%;";
+  textarea.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px 16px; min-height:100px; border:1px solid #C9C7BC; background:#fff; resize:vertical; width:100%;";
   modal.appendChild(textarea);
 
   const locationInput = el("input", { type: "text", placeholder: "Location — neighborhood only, e.g. STONE TOWN" });
-  locationInput.style.cssText = "font-family:'IBM Plex Mono',monospace; font-size:14px; padding:12px; min-height:44px; border:1px solid #C9C7BC; background:#fff; width:100%; text-transform:uppercase;";
+  locationInput.style.cssText = "font-family:'IBM Plex Mono',monospace; font-size:16px; padding:12px 16px; border:1px solid #C9C7BC; background:#fff; width:100%; text-transform:uppercase;";
   modal.appendChild(locationInput);
 
   const availableTags = ["CASUAL", "FRIENDS", "ACTIVITY", "SERIOUS", "NSFW", "OTHER"];
