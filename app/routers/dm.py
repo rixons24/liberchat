@@ -17,13 +17,68 @@ from app.core.deps import get_db, get_current_user_ws, get_current_user
 from app.models.dm import DMThread, Message
 from app.models.user import User, UserStatus
 from app.models.post import Post
-from app.schemas.dm import ThreadStartRequest, ThreadOut, MessageOut
+from app.models.report import ThreadRead
+from app.schemas.dm import ThreadStartRequest, ThreadOut, MessageOut, ThreadSummaryOut
 
 router = APIRouter()
 
 # In-memory connection registry. For multi-instance deployment, replace
 # with a Redis pub/sub channel per thread instead of a local dict.
 active_connections: dict[str, WebSocket] = {}
+
+
+def _mark_read(db: Session, thread_id, user_id):
+    read = db.query(ThreadRead).filter_by(thread_id=thread_id, user_id=user_id).first()
+    if read:
+        read.last_read_at = datetime.utcnow()
+    else:
+        db.add(ThreadRead(thread_id=thread_id, user_id=user_id, last_read_at=datetime.utcnow()))
+    db.commit()
+
+
+@router.get("/threads", response_model=list[ThreadSummaryOut])
+async def list_threads(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Every thread the current user is part of, regardless of whether they
+    started it or are the post author being responded to. This is the
+    only way a post author can find and open conversations replying to
+    their own posts - opening their own post directly can't resolve to
+    a single thread, since multiple people may have responded to it.
+    """
+    threads = db.query(DMThread).filter(
+        (DMThread.user_a_id == current_user.id) | (DMThread.user_b_id == current_user.id)
+    ).order_by(DMThread.last_message_at.desc()).all()
+
+    result = []
+    for t in threads:
+        other_id = t.user_b_id if t.user_a_id == current_user.id else t.user_a_id
+        other_user = db.query(User).get(other_id)
+
+        last_message = db.query(Message).filter_by(thread_id=t.id).order_by(Message.created_at.desc()).first()
+        read = db.query(ThreadRead).filter_by(thread_id=t.id, user_id=current_user.id).first()
+
+        unread = False
+        if last_message and last_message.sender_id != current_user.id:
+            if not read or last_message.created_at > read.last_read_at:
+                unread = True
+
+        result.append(ThreadSummaryOut(
+            id=t.id,
+            other_user_handle=other_user.handle if other_user else "Unknown",
+            last_message_at=t.last_message_at,
+            unread=unread,
+            reported=t.blocked,
+        ))
+    return result
+
+
+@router.post("/thread/{thread_id}/read")
+async def mark_thread_read(thread_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    thread = db.query(DMThread).get(thread_id)
+    if not thread or current_user.id not in (thread.user_a_id, thread.user_b_id):
+        raise HTTPException(status_code=404, detail="Thread not found.")
+    _mark_read(db, thread.id, current_user.id)
+    return {"ok": True}
 
 
 @router.post("/thread/start", response_model=ThreadOut)
@@ -38,7 +93,13 @@ async def start_thread(
 
     other_user_id = post.author_id
     if other_user_id == current_user.id:
-        raise HTTPException(status_code=400, detail="Can't start a thread with your own post.")
+        # The post's own author tapped their own post - there's no single
+        # thread to resolve to (multiple people may have responded).
+        # Point them at their inbox instead of erroring.
+        raise HTTPException(
+            status_code=409,
+            detail="This is your own post. Check your Messages tab to see responses.",
+        )
 
     # Reuse an existing thread between these two users tied to this post,
     # rather than creating duplicates on every "Respond" tap.
@@ -48,12 +109,25 @@ async def start_thread(
         | ((DMThread.user_a_id == other_user_id) & (DMThread.user_b_id == current_user.id)),
     ).first()
     if existing:
+        _mark_read(db, existing.id, current_user.id)
         return existing
 
     thread = DMThread(post_id=post.id, user_a_id=current_user.id, user_b_id=other_user_id)
     db.add(thread)
     db.commit()
     db.refresh(thread)
+    _mark_read(db, thread.id, current_user.id)
+    return thread
+
+
+@router.get("/thread/{thread_id}", response_model=ThreadOut)
+async def get_thread(thread_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Fetch thread metadata directly by id - used when opening an existing
+    thread from the inbox, bypassing thread/start entirely."""
+    thread = db.query(DMThread).get(thread_id)
+    if not thread or current_user.id not in (thread.user_a_id, thread.user_b_id):
+        raise HTTPException(status_code=404, detail="Thread not found.")
+    _mark_read(db, thread.id, current_user.id)
     return thread
 
 
@@ -66,6 +140,8 @@ async def get_thread_messages(
     thread = db.query(DMThread).get(thread_id)
     if not thread or current_user.id not in (thread.user_a_id, thread.user_b_id):
         raise HTTPException(status_code=404, detail="Thread not found.")
+
+    _mark_read(db, thread.id, current_user.id)
 
     from app.models.media import Media
     messages = db.query(Message).filter_by(thread_id=thread.id).order_by(Message.created_at.asc()).all()

@@ -14,9 +14,34 @@
 <title>LiberChat — Working Prototype</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  :root {
+    --bg: #EDECE7;
+    --surface: #F7F6F2;
+    --input-bg: #FFFFFF;
+    --ink: #141414;
+    --muted: #8C8A82;
+    --line: #C9C7BC;
+    --accent: #FF4B1F;
+    --danger: #B23B2E;
+    --msg-me-bg: #141414;
+    --msg-me-text: #F7F6F2;
+  }
+  body.dark {
+    --bg: #1A1917;
+    --surface: #242321;
+    --input-bg: #2C2B28;
+    --ink: #EDECE7;
+    --muted: #97958C;
+    --line: #3A3934;
+    --accent: #FF5C33;
+    --danger: #E8846A;
+    --msg-me-bg: #EDECE7;
+    --msg-me-text: #141414;
+  }
+
   * { box-sizing: border-box; border-radius: 0 !important; box-shadow: none !important; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   html, body { height: 100%; overscroll-behavior-y: contain; }
-  body { background: #EDECE7; color: #141414; font-family: 'Inter', sans-serif; }
+  body { background: var(--bg); color: var(--ink); font-family: 'Inter', sans-serif; transition: background 0.2s, color 0.2s; }
   .app { max-width: 420px; width: 100%; margin: 0 auto; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
          padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 
@@ -24,7 +49,7 @@
      reflows into a 2-column grid. Below this width (phones) the app stays
      edge-to-edge full-bleed, matching native mobile app conventions. */
   @media (min-width: 640px) {
-    .app { max-width: 640px; height: 92vh; height: 92dvh; margin: 4vh auto; border: 1px solid #C9C7BC; }
+    .app { max-width: 640px; height: 92vh; height: 92dvh; margin: 4vh auto; border: 1px solid var(--line); }
     main.feed-main { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-content: start; }
     main.feed-main .post { margin-bottom: 0; }
     .msg { max-width: min(78%, 420px); }
@@ -35,53 +60,53 @@
     .app { max-width: 960px; }
     main.feed-main { grid-template-columns: repeat(3, 1fr); }
   }
-  .label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8C8A82; }
-  .panel { background: #F7F6F2; border: 1px solid #C9C7BC; }
-  header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid #C9C7BC; }
+  .label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .panel { background: var(--surface); border: 1px solid var(--line); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--line); }
   .wordmark { font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; cursor:pointer; }
   button { font-family: 'IBM Plex Mono', monospace; cursor: pointer; background: none; }
   /* Uniform box padding scale: 12px vertical / 16px horizontal for all
      standard buttons and inputs, 44px minimum touch target height.
      Only the compact chip/tag elements use a smaller scale. */
-  .btn-secondary { color: #141414; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid #141414; }
-  .btn-primary { background: #FF4B1F; color: #F7F6F2; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid #FF4B1F; width: 100%; }
+  .btn-secondary { color: var(--ink); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid var(--ink); }
+  .btn-primary { background: var(--accent); color: var(--surface); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid var(--accent); width: 100%; }
   .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
-  .btn-danger { color: #B23B2E; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid #B23B2E; }
-  .btn-ghost { color: #8C8A82; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 0; }
+  .btn-danger { color: var(--danger); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid var(--danger); }
+  .btn-ghost { color: var(--muted); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; min-height:44px; border: 1px solid var(--line); }
   main { flex: 1; min-height: 0; padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .post { display: flex; flex-direction: column; gap: 12px; padding: 16px; margin-bottom: 12px; }
   .post-top { display: flex; justify-content: space-between; }
   .post-body { font-size: 15px; line-height: 1.55; }
-  .post-bottom { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #C9C7BC; }
+  .post-bottom { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid var(--line); }
   .tags { display: flex; gap: 6px; }
-  .tag { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid #C9C7BC; padding: 4px 8px; color: #8C8A82; }
+  .tag { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--line); padding: 4px 8px; color: var(--muted); }
   .interstitial-point { display: flex; gap: 12px; margin-bottom: 14px; align-items: flex-start; }
-  .point-code { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FF4B1F; padding-top: 2px; }
+  .point-code { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--accent); padding-top: 2px; }
   .point-text { font-size: 14px; line-height: 1.5; }
-  .checkbox-row { display: flex; gap: 10px; align-items: flex-start; padding-top: 16px; border-top: 1px solid #C9C7BC; margin-top: 6px; }
-  .checkbox-row span { font-size: 12px; color: #8C8A82; }
-  .thread-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #C9C7BC; }
+  .checkbox-row { display: flex; gap: 10px; align-items: flex-start; padding-top: 16px; border-top: 1px solid var(--line); margin-top: 6px; }
+  .checkbox-row span { font-size: 12px; color: var(--muted); }
+  .thread-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--line); }
   .thread-msgs { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:16px; display:flex; flex-direction:column; gap:10px; }
   .msg { max-width: 78%; padding: 10px 12px; font-size:14px; line-height:1.45; }
-  .msg.me { align-self:flex-end; background:#141414; color:#F7F6F2; }
-  .msg.them { align-self:flex-start; background:#F7F6F2; border:1px solid #C9C7BC; }
+  .msg.me { align-self:flex-end; background:var(--msg-me-bg); color:var(--msg-me-text); }
+  .msg.them { align-self:flex-start; background:var(--surface); border:1px solid var(--line); }
   .msg-meta { font-family:'IBM Plex Mono', monospace; font-size:9px; letter-spacing:0.05em; opacity:0.5; margin-top:4px; display:block; }
-  .media-chip { display:flex; align-items:center; gap:8px; padding:12px; min-height:44px; border:1px dashed #8C8A82; cursor:pointer; font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.05em; text-transform:uppercase; }
-  .media-chip.consumed { border-style:solid; color:#8C8A82; cursor:default; }
-  .composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid #C9C7BC; align-items:center;
+  .media-chip { display:flex; align-items:center; gap:8px; padding:12px; min-height:44px; border:1px dashed var(--muted); cursor:pointer; font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.05em; text-transform:uppercase; }
+  .media-chip.consumed { border-style:solid; color:var(--muted); cursor:default; }
+  .composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); align-items:center;
               padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-  .composer input[type=text] { flex:1; font-family:'Inter'; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; background:#F7F6F2; }
-  .icon-btn { border:1px solid #C9C7BC; padding:10px 12px; font-size:16px; min-width:44px; min-height:44px; }
-  .viewer { position:fixed; inset:0; background:#141414; color:#F7F6F2; display:flex; flex-direction:column; z-index:50; }
+  .composer input[type=text] { flex:1; font-family:'Inter'; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid var(--line); background:var(--surface); }
+  .icon-btn { border:1px solid var(--line); padding:10px 12px; font-size:16px; min-width:44px; min-height:44px; }
+  .viewer { position:fixed; inset:0; background:var(--ink); color:var(--surface); display:flex; flex-direction:column; z-index:50; }
   .viewer-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #333; }
   .viewer-body { flex:1; display:flex; align-items:center; justify-content:center; padding: 30px; text-align:center; }
   .viewer-bottom { padding: 12px 16px; border-top: 1px solid #333; }
   .modal-backdrop { position:fixed; inset:0; background:rgba(20,20,20,0.55); display:flex; align-items:flex-end; z-index:60; }
-  .modal { background:#F7F6F2; border-top:1px solid #C9C7BC; width:100%; padding:20px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; max-width:420px; margin:0 auto; max-height:80vh; overflow-y:auto; }
-  .reason-btn { text-align:left; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; font-family:'Inter'; font-size:14px; background:#fff; }
-  .reason-btn.tier1 { border-color:#B23B2E; }
-  .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#141414; color:#F7F6F2; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 18px; z-index:70; }
-  .empty { text-align:center; padding:40px 20px; color:#8C8A82; font-size:13px; grid-column: 1 / -1; }
+  .modal { background:var(--surface); border-top:1px solid var(--line); width:100%; padding:20px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; max-width:420px; margin:0 auto; max-height:80vh; overflow-y:auto; }
+  .reason-btn { text-align:left; padding:12px 16px; min-height:44px; border:1px solid var(--line); font-family:'Inter'; font-size:14px; background:var(--input-bg); }
+  .reason-btn.tier1 { border-color:var(--danger); }
+  .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--surface); font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 18px; z-index:70; }
+  .empty { text-align:center; padding:40px 20px; color:var(--muted); font-size:13px; grid-column: 1 / -1; }
 </style>
 </head>
 <body>
@@ -108,6 +133,16 @@ const state = {
   feedLoading: false,
   activeThread: null,
   viewerSignedUrl: null,
+  screenBeforeThread: "feed", // where to return to when leaving a thread (feed or messages)
+  threads: [],             // inbox list from GET /dm/threads
+  threadsLoading: false,
+  unreadCount: 0,
+  darkMode: localStorage.getItem("liberchat_dark_mode") === "true",
+  profileMenuOpen: false,
+  audioRecording: false,
+  audioRecorder: null,
+  audioChunks: [],
+  recordedAudioBlob: null,
 };
 
 // Mock only — the real backend never exposes admin creds this way. See
@@ -195,6 +230,7 @@ function render() {
   if (state.screen === "otp") root.appendChild(OtpScreen());
   if (state.screen === "login") root.appendChild(LoginScreen());
   if (state.screen === "feed") root.appendChild(FeedScreen());
+  if (state.screen === "messages") root.appendChild(MessagesScreen());
   if (state.screen === "thread") root.appendChild(ThreadScreen());
   if (state.screen === "mod") root.appendChild(state.adminAuthenticated ? ModScreen() : AdminLoginScreen());
   if (state.screen === "adminLogin") root.appendChild(AdminLoginScreen());
@@ -202,6 +238,7 @@ function render() {
   if (state.reportModalOpen) root.appendChild(ReportModal());
   if (state.composeModalOpen) root.appendChild(ComposeModal());
   if (state.attachModalOpen) root.appendChild(AttachMediaModal());
+  if (state.profileMenuOpen) root.appendChild(ProfileMenu());
   if (state.toast) root.appendChild(Toast());
 }
 
@@ -386,6 +423,7 @@ function OtpScreen() {
       state.screen = "feed";
       render();
       loadFeed();
+      loadThreads();
     } catch (e) {
       errorMsg.textContent = e.message;
       errorMsg.style.display = "block";
@@ -422,6 +460,7 @@ function LoginScreen() {
       state.screen = "feed";
       render();
       loadFeed();
+      loadThreads();
     } catch (e) {
       errorMsg.textContent = e.message;
       errorMsg.style.display = "block";
@@ -468,6 +507,49 @@ function decodeJwtSub(token) {
 
 let activeSocket = null;
 
+function mapMessage(m, isFromEvent) {
+  const senderId = isFromEvent ? m.sender_id : m.sender_id;
+  const createdAt = isFromEvent ? m.created_at : m.created_at;
+  return {
+    id: isFromEvent ? m.message_id : m.id,
+    from: senderId === decodeJwtSub(state.authToken) ? "me" : "them",
+    text: m.ciphertext,
+    time: new Date(createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    media: m.media_id ? {
+      id: m.media_id,
+      type: m.media_info?.type || "image",
+      nsfw: m.media_info?.nsfw || false,
+      nsfwAcknowledged: !(m.media_info?.nsfw),
+      consumed: m.media_info?.consumed || false,
+      viewCount: 0,
+    } : null,
+  };
+}
+
+function connectThreadSocket(threadId) {
+  if (activeSocket) activeSocket.close();
+  activeSocket = new WebSocket(`${API_BASE.replace("http", "ws")}/dm/ws/${threadId}?token=${state.authToken}`);
+  activeSocket.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    state.activeThread.messages.push(mapMessage(data, true));
+    render();
+  };
+}
+
+async function ensureSocketOpen(threadId) {
+  if (activeSocket && activeSocket.readyState === WebSocket.OPEN) return true;
+  // Render's free tier (and mobile browsers backgrounding a tab) can
+  // silently drop an idle websocket. Reconnect once before giving up,
+  // rather than immediately failing with "connection lost".
+  connectThreadSocket(threadId);
+  const start = Date.now();
+  while (activeSocket.readyState !== WebSocket.OPEN) {
+    if (Date.now() - start > 4000) return false;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return true;
+}
+
 async function openThread(postId) {
   try {
     const thread = await api("/dm/thread/start", { method: "POST", token: state.authToken, body: { post_id: postId } });
@@ -477,43 +559,37 @@ async function openThread(postId) {
       id: thread.id,
       otherUserId: thread.user_a_id === decodeJwtSub(state.authToken) ? thread.user_b_id : thread.user_a_id,
       reported: false,
-      messages: history.map((m) => ({
-        id: m.id,
-        from: m.sender_id === decodeJwtSub(state.authToken) ? "me" : "them",
-        text: m.ciphertext,
-        time: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        media: m.media_id ? {
-          id: m.media_id,
-          type: m.media_info?.type || "image",
-          nsfw: m.media_info?.nsfw || false,
-          nsfwAcknowledged: !(m.media_info?.nsfw),
-          consumed: m.media_info?.consumed || false,
-          viewCount: 0,
-        } : null,
-      })),
+      messages: history.map((m) => mapMessage(m, false)),
     };
-
-    if (activeSocket) activeSocket.close();
-    activeSocket = new WebSocket(`${API_BASE.replace("http", "ws")}/dm/ws/${thread.id}?token=${state.authToken}`);
-    activeSocket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      state.activeThread.messages.push({
-        id: data.message_id,
-        from: data.sender_id === decodeJwtSub(state.authToken) ? "me" : "them",
-        text: data.ciphertext,
-        time: new Date(data.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        media: data.media_id ? {
-          id: data.media_id,
-          type: data.media_info?.type || "image",
-          nsfw: data.media_info?.nsfw || false,
-          nsfwAcknowledged: !(data.media_info?.nsfw),
-          consumed: false,
-          viewCount: 0,
-        } : null,
-      });
+    connectThreadSocket(thread.id);
+    state.screenBeforeThread = "feed";
+    state.screen = "thread";
+    render();
+  } catch (e) {
+    if (e.message && e.message.includes("own post")) {
+      showToast("This is your own post — check Messages for responses.");
+      state.screen = "messages";
+      loadThreads();
       render();
-    };
+      return;
+    }
+    showToast("Could not open thread: " + e.message);
+  }
+}
 
+async function openExistingThread(threadId) {
+  try {
+    const thread = await api(`/dm/thread/${threadId}`, { token: state.authToken });
+    const history = await api(`/dm/thread/${threadId}/messages`, { token: state.authToken });
+
+    state.activeThread = {
+      id: thread.id,
+      otherUserId: thread.user_a_id === decodeJwtSub(state.authToken) ? thread.user_b_id : thread.user_a_id,
+      reported: false,
+      messages: history.map((m) => mapMessage(m, false)),
+    };
+    connectThreadSocket(thread.id);
+    state.screenBeforeThread = "messages";
     state.screen = "thread";
     render();
   } catch (e) {
@@ -521,9 +597,24 @@ async function openThread(postId) {
   }
 }
 
+async function loadThreads() {
+  state.threadsLoading = true;
+  render();
+  try {
+    const data = await api("/dm/threads", { token: state.authToken });
+    state.threads = data;
+    state.unreadCount = data.filter((t) => t.unread).length;
+  } catch (e) {
+    showToast("Could not load messages: " + e.message);
+  } finally {
+    state.threadsLoading = false;
+    render();
+  }
+}
+
 function FeedScreen() {
   const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
-  wrap.appendChild(Header("Liberchat", null));
+  wrap.appendChild(Header("feed"));
 
   const main = el("main", { class: "feed-main" });
 
@@ -561,37 +652,134 @@ function FeedScreen() {
 
 
 
-function Header(title, onBack) {
+function Header(context, opts = {}) {
   const h = el("header", {});
-  const left = onBack
-    ? (() => { const b = el("button", { class: "btn-ghost" }, "← Back"); b.addEventListener("click", onBack); return b; })()
-    : el("span", { class: "wordmark" }, title);
-  h.appendChild(left);
-  if (onBack) {
+
+  if (context === "thread") {
+    const back = el("button", { class: "btn-ghost" }, "← Back");
+    back.addEventListener("click", opts.onBack);
+    h.appendChild(back);
+    h.appendChild(el("span", { class: "label" }, opts.title || ""));
     const reportBtn = el("button", { class: "btn-danger" }, "Report");
     reportBtn.addEventListener("click", () => { state.reportModalOpen = true; render(); });
     h.appendChild(reportBtn);
-  } else {
-    const right = el("div", { style: "display:flex; gap:8px;" });
-    const newPostBtn = el("button", { class: "btn-secondary" }, "New post");
-    newPostBtn.addEventListener("click", () => { state.composeModalOpen = true; render(); });
-    const logoutBtn = el("button", { class: "btn-ghost" }, "Log out");
-    logoutBtn.addEventListener("click", () => {
-      if (activeSocket) { activeSocket.close(); activeSocket = null; }
-      posts.length = 0;
-      clearSession();
-    });
-    right.appendChild(newPostBtn);
-    right.appendChild(logoutBtn);
-    h.appendChild(right);
+    return h;
   }
+
+  if (context === "messages") {
+    const back = el("button", { class: "btn-ghost" }, "← Back");
+    back.addEventListener("click", () => { state.screen = "feed"; render(); });
+    h.appendChild(back);
+    h.appendChild(el("span", { class: "label" }, "Messages"));
+    h.appendChild(el("span", { style: "width:60px;" })); // balance the row
+    return h;
+  }
+
+  // context === "feed"
+  h.appendChild(el("span", { class: "wordmark" }, "Liberchat"));
+
+  const right = el("div", { style: "display:flex; gap:8px; align-items:center;" });
+
+  const newPostBtn = el("button", { class: "btn-secondary" }, "New post");
+  newPostBtn.addEventListener("click", () => { state.composeModalOpen = true; render(); });
+  right.appendChild(newPostBtn);
+
+  const messagesBtn = el("button", { class: "btn-secondary", style: "position:relative;" },
+    state.unreadCount > 0 ? `Messages (${state.unreadCount})` : "Messages");
+  messagesBtn.addEventListener("click", () => { state.screen = "messages"; render(); loadThreads(); });
+  right.appendChild(messagesBtn);
+
+  const menuBtn = el("button", { class: "btn-ghost" }, "☰");
+  menuBtn.addEventListener("click", () => { state.profileMenuOpen = true; render(); });
+  right.appendChild(menuBtn);
+
+  h.appendChild(right);
   return h;
+}
+
+function ProfileMenu() {
+  const backdrop = el("div", { class: "modal-backdrop" });
+  const modal = el("div", { class: "modal" });
+  modal.appendChild(el("span", { class: "label" }, "Menu"));
+
+  const darkRow = el("label", { style: "display:flex; align-items:center; justify-content:space-between; padding:12px 0; cursor:pointer;" });
+  darkRow.appendChild(el("span", { style: "font-size:14px;" }, "Night mode"));
+  const darkToggle = el("input", { type: "checkbox" });
+  darkToggle.checked = state.darkMode;
+  darkToggle.addEventListener("change", (e) => {
+    state.darkMode = e.target.checked;
+    localStorage.setItem("liberchat_dark_mode", state.darkMode ? "true" : "false");
+    document.body.classList.toggle("dark", state.darkMode);
+  });
+  darkRow.appendChild(darkToggle);
+  modal.appendChild(darkRow);
+
+  const handle = decodeJwtHandle();
+  modal.appendChild(el("div", { class: "label", style: "padding:8px 0; border-top:1px solid var(--line); margin-top:4px;" },
+    handle ? `Signed in` : ""));
+
+  const closeBtn = el("button", { class: "btn-ghost" }, "Close");
+  closeBtn.addEventListener("click", () => { state.profileMenuOpen = false; render(); });
+  modal.appendChild(closeBtn);
+
+  const logoutBtn = el("button", { class: "btn-danger" }, "Log out");
+  logoutBtn.addEventListener("click", () => {
+    if (activeSocket) { activeSocket.close(); activeSocket = null; }
+    posts.length = 0;
+    state.profileMenuOpen = false;
+    clearSession();
+  });
+  modal.appendChild(logoutBtn);
+
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) { state.profileMenuOpen = false; render(); } });
+  return backdrop;
+}
+
+function decodeJwtHandle() {
+  // Handle isn't in the JWT payload currently (only user id) - this is a
+  // placeholder for a future /auth/me endpoint. Returns null for now.
+  return null;
+}
+
+function MessagesScreen() {
+  const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
+  wrap.appendChild(Header("messages"));
+
+  const main = el("main", {});
+
+  if (state.threadsLoading && state.threads.length === 0) {
+    main.appendChild(el("div", { class: "empty" }, "Loading messages..."));
+  } else if (!state.threadsLoading && state.threads.length === 0) {
+    main.appendChild(el("div", { class: "empty" }, "No conversations yet."));
+  }
+
+  state.threads.forEach((t) => {
+    const row = el("div", { class: "panel", style: "padding:16px; margin-bottom:10px; cursor:pointer; display:flex; justify-content:space-between; align-items:center;" });
+    row.addEventListener("click", () => openExistingThread(t.id));
+
+    const left = el("div", {});
+    left.appendChild(el("div", { style: `font-size:14px; ${t.unread ? "font-weight:600;" : ""}` }, `@${t.other_user_handle}`));
+    left.appendChild(el("div", { class: "label", style: "margin-top:4px;" }, new Date(t.last_message_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })));
+    row.appendChild(left);
+
+    if (t.unread) {
+      row.appendChild(el("span", { style: "width:8px; height:8px; background:var(--accent); border-radius:50%;" }));
+    }
+    main.appendChild(row);
+  });
+
+  wrap.appendChild(main);
+  return wrap;
 }
 
 function ThreadScreen() {
   const thread = state.activeThread;
   const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
-  wrap.appendChild(Header(`THREAD / ${thread.id.slice(0, 8).toUpperCase()}`, () => { state.screen = "feed"; render(); }));
+  wrap.appendChild(Header("thread", {
+    title: `THREAD / ${thread.id.slice(0, 8).toUpperCase()}`,
+    onBack: () => { state.screen = state.screenBeforeThread; render(); },
+  }));
 
   const msgsWrap = el("div", { class: "thread-msgs" });
 
@@ -643,18 +831,13 @@ function ThreadScreen() {
   const composer = el("div", { class: "composer" });
   const input = el("input", { type: "text", placeholder: thread.reported ? "This thread is frozen." : "Message — plaintext for now, E2EE key exchange not yet wired client-side" });
   if (thread.reported) input.setAttribute("disabled", "true");
-  const mediaBtn = el("button", { class: "icon-btn" }, "＋");
-  mediaBtn.addEventListener("click", () => {
-    if (thread.reported) return;
-    state.attachModalOpen = true;
-    render();
-  });
-  const sendBtn = el("button", { class: "btn-secondary" }, "Send");
-  sendBtn.addEventListener("click", () => {
+
+  async function sendTextMessage() {
     if (thread.reported) return;
     if (!input.value.trim()) return;
-    if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
-      showToast("Connection lost — reopen the thread.");
+    const ok = await ensureSocketOpen(thread.id);
+    if (!ok) {
+      showToast("Couldn't reconnect — check your connection and try again.");
       return;
     }
     activeSocket.send(JSON.stringify({ ciphertext: input.value.trim(), media_id: null }));
@@ -664,9 +847,26 @@ function ThreadScreen() {
     thread.messages.push({ from: "me", text: input.value.trim(), time: nowTime() });
     input.value = "";
     render();
+  }
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); sendTextMessage(); }
   });
-  composer.appendChild(mediaBtn);
+
+  const mediaBtn = el("button", { class: "icon-btn" }, "＋");
+  mediaBtn.addEventListener("click", () => {
+    if (thread.reported) return;
+    state.attachModalOpen = true;
+    render();
+  });
+  const sendBtn = el("button", { class: "btn-secondary" }, "Send");
+  sendBtn.addEventListener("click", sendTextMessage);
+
+  // Input first, then attach, then send - keeps the primary text field
+  // widest and puts the attach action between typing and sending rather
+  // than leading the row.
   composer.appendChild(input);
+  composer.appendChild(mediaBtn);
   composer.appendChild(sendBtn);
   wrap.appendChild(composer);
 
@@ -957,60 +1157,129 @@ function AttachMediaModal() {
   const backdrop = el("div", { class: "modal-backdrop" });
   const modal = el("div", { class: "modal" });
   modal.appendChild(el("span", { class: "label" }, "Attach media — view once"));
-  modal.appendChild(el("p", { style: "font-size:13px; color:#8C8A82; line-height:1.5;" },
+  modal.appendChild(el("p", { style: "font-size:13px; color:var(--muted); line-height:1.5;" },
     "The recipient can view this once. It's permanently deleted the moment they leave the viewer."));
 
   let selectedType = "image";
+  let selectedFile = null;   // either a picked File or a recorded Blob
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recordingStartedAt = null;
+
   const typeRow = el("div", { style: "display:flex; gap:6px;" });
+  const inputContainer = el("div", { style: "display:flex; flex-direction:column; gap:8px;" });
+
+  function renderInputOptions() {
+    inputContainer.innerHTML = "";
+    selectedFile = null;
+
+    if (selectedType === "image" || selectedType === "video") {
+      // capture="environment" opens the device camera directly on mobile
+      // browsers that support it; on desktop it just falls back to a
+      // normal file picker, so this is safe cross-platform.
+      const fileInput = el("input", {
+        type: "file",
+        accept: selectedType === "image" ? "image/*" : "video/*",
+        capture: "environment",
+      });
+      fileInput.style.cssText = "font-size:13px;";
+      fileInput.addEventListener("change", () => { selectedFile = fileInput.files[0] || null; });
+      inputContainer.appendChild(fileInput);
+      inputContainer.appendChild(el("span", { class: "label" }, "Tap to take a photo/video or choose from your device"));
+    } else {
+      // Audio: offer both a plain file picker AND in-browser recording.
+      const fileInput = el("input", { type: "file", accept: "audio/*" });
+      fileInput.style.cssText = "font-size:13px;";
+      fileInput.addEventListener("change", () => { selectedFile = fileInput.files[0] || null; recordStatus.textContent = ""; });
+      inputContainer.appendChild(fileInput);
+      inputContainer.appendChild(el("span", { class: "label" }, "— or —"));
+
+      const recordBtn = el("button", { class: "btn-secondary" }, "🎙 Record audio");
+      const recordStatus = el("span", { class: "label", style: "color:var(--danger);" }, "");
+      inputContainer.appendChild(recordBtn);
+      inputContainer.appendChild(recordStatus);
+
+      recordBtn.addEventListener("click", async () => {
+        if (!mediaRecorder || mediaRecorder.state === "inactive") {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            recordedChunks = [];
+            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+            mediaRecorder.onstop = () => {
+              const blob = new Blob(recordedChunks, { type: "audio/webm" });
+              selectedFile = new File([blob], "recording.webm", { type: "audio/webm" });
+              stream.getTracks().forEach((t) => t.stop());
+              recordBtn.textContent = "🎙 Record again";
+              recordStatus.textContent = "Recorded — ready to send.";
+            };
+            mediaRecorder.start();
+            recordingStartedAt = Date.now();
+            recordBtn.textContent = "⏹ Stop recording";
+            recordStatus.textContent = "Recording...";
+          } catch (e) {
+            recordStatus.textContent = "Microphone access denied or unavailable.";
+          }
+        } else {
+          mediaRecorder.stop();
+        }
+      });
+    }
+  }
+
   ["image", "video", "audio"].forEach((type) => {
     const chip = el("button", {
       class: "tag",
-      style: `cursor:pointer; padding:10px 14px; ${type === selectedType ? "background:#141414; color:#F7F6F2;" : ""}`,
+      style: `cursor:pointer; padding:10px 14px; ${type === selectedType ? "background:var(--ink); color:var(--surface);" : ""}`,
     }, type.toUpperCase());
     chip.addEventListener("click", () => {
       selectedType = type;
-      [...typeRow.children].forEach((c) => { c.style.background = "transparent"; c.style.color = "#8C8A82"; });
-      chip.style.background = "#141414";
-      chip.style.color = "#F7F6F2";
+      [...typeRow.children].forEach((c) => { c.style.background = "transparent"; c.style.color = "var(--muted)"; });
+      chip.style.background = "var(--ink)";
+      chip.style.color = "var(--surface)";
+      renderInputOptions();
     });
     typeRow.appendChild(chip);
   });
   modal.appendChild(typeRow);
-
-  const fileInput = el("input", { type: "file", accept: "image/*,video/*,audio/*" });
-  fileInput.style.cssText = "font-size:13px;";
-  modal.appendChild(fileInput);
+  modal.appendChild(inputContainer);
+  renderInputOptions();
 
   let markedNsfw = false;
   const nsfwRow = el("label", { style: "display:flex; align-items:center; gap:10px; cursor:pointer; padding-top:6px;" });
   const nsfwCheckbox = el("input", { type: "checkbox" });
   nsfwCheckbox.addEventListener("change", (e) => { markedNsfw = e.target.checked; });
   nsfwRow.appendChild(nsfwCheckbox);
-  nsfwRow.appendChild(el("span", { style: "font-size:13px; color:#B23B2E;" }, "Tag this NSFW — recipient sees a warning before it reveals"));
+  nsfwRow.appendChild(el("span", { style: "font-size:13px; color:var(--danger);" }, "Tag this NSFW — recipient sees a warning before it reveals"));
   modal.appendChild(nsfwRow);
 
-  const errorMsg = el("span", { class: "label", style: "color:#B23B2E; display:none;" }, "");
+  const errorMsg = el("span", { class: "label", style: "color:var(--danger); display:none;" }, "");
   modal.appendChild(errorMsg);
 
   const sendBtn = el("button", { class: "btn-primary" }, "Send");
   sendBtn.addEventListener("click", async () => {
-    if (!fileInput.files[0]) {
-      errorMsg.textContent = "Choose a file first.";
+    if (!selectedFile) {
+      errorMsg.textContent = "Choose or record a file first.";
       errorMsg.style.display = "block";
-      return;
-    }
-    if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
-      showToast("Connection lost — reopen the thread.");
       return;
     }
     sendBtn.textContent = "Uploading...";
     sendBtn.disabled = true;
     try {
       const form = new FormData();
-      form.append("file", fileInput.files[0]);
+      form.append("file", selectedFile);
       form.append("media_type", selectedType);
       form.append("nsfw", markedNsfw ? "true" : "false");
       const uploadResp = await api("/media/upload", { method: "POST", token: state.authToken, body: form, isFormData: true });
+
+      const ok = await ensureSocketOpen(state.activeThread.id);
+      if (!ok) {
+        errorMsg.textContent = "Uploaded, but couldn't reconnect to send it. Try again.";
+        errorMsg.style.display = "block";
+        sendBtn.textContent = "Send";
+        sendBtn.disabled = false;
+        return;
+      }
 
       activeSocket.send(JSON.stringify({ ciphertext: null, media_id: uploadResp.media_id }));
       state.activeThread.messages.push({
@@ -1031,7 +1300,11 @@ function AttachMediaModal() {
   modal.appendChild(sendBtn);
 
   const cancel = el("button", { class: "btn-ghost" }, "Cancel");
-  cancel.addEventListener("click", () => { state.attachModalOpen = false; render(); });
+  cancel.addEventListener("click", () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+    state.attachModalOpen = false;
+    render();
+  });
   modal.appendChild(cancel);
 
   backdrop.appendChild(modal);
@@ -1124,6 +1397,8 @@ function Toast() {
 // Admin console is reachable ONLY via a direct URL (e.g. yourapp.com/#admin),
 // never via any link, button, or nav item inside the regular app. A normal
 // user browsing LiberChat has no path that leads here.
+if (state.darkMode) document.body.classList.add("dark");
+
 if (window.location.hash === "#admin") {
   state.screen = "adminLogin";
 } else {
@@ -1136,6 +1411,7 @@ if (window.location.hash === "#admin") {
     // since a transient network hiccup shouldn't silently sign someone
     // out — they can still navigate normally and retry.
     loadFeed();
+    loadThreads();
   }
 }
 

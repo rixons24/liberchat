@@ -13,6 +13,7 @@ class PostCreate(BaseModel):
 
 class PostOut(BaseModel):
     id: uuid.UUID
+    author_id: uuid.UUID
     body_text: str
     intent_tags: list[str]
     location_label: Optional[str]

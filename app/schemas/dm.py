@@ -30,3 +30,11 @@ class MessageOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ThreadSummaryOut(BaseModel):
+    id: uuid.UUID
+    other_user_handle: str
+    last_message_at: datetime
+    unread: bool
+    reported: bool

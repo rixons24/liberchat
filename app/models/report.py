@@ -85,3 +85,18 @@ class Block(Base):
     blocker_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     blocked_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ThreadRead(Base):
+    """
+    Tracks when each participant last read a thread. A DMThread is shared
+    between two users, so read-state can't live on the thread itself -
+    each user has their own row here, updated whenever they open/view
+    that thread. Used to compute unread indicators in the inbox list.
+    """
+    __tablename__ = "thread_reads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id = Column(UUID(as_uuid=True), ForeignKey("dm_threads.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    last_read_at = Column(DateTime, default=datetime.utcnow)

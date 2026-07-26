@@ -8,7 +8,7 @@ class SignupStart(BaseModel):
     dob: date
     age_gate_accepted: bool
     handle: str = Field(..., min_length=3, max_length=32)
-    password: str = Field(..., min_length=10)
+    password: str = Field(..., min_length=8)
 
     @field_validator("age_gate_accepted")
     @classmethod
