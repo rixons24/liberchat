@@ -44,7 +44,8 @@ services:
       #   MEDIA_STORAGE_SECRET_KEY  (Cloudflare R2)
       #   SAFER_API_KEY             (Thorn Safer, CSAM scanning)
       #   NCMEC_REPORT_ENDPOINT     (after registering as a reporter)
-      #   SMS_PROVIDER_API_KEY      (Twilio / Africa's Talking)
+      #   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+      #                             (real SMS delivery for OTP codes)
       # Until these are set, signup/login/posts/reports/moderation all
       # work normally; media upload will fail (no real object storage
       # configured yet), and OTPs generate but are never actually texted.

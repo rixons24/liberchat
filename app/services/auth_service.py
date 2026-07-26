@@ -40,16 +40,24 @@ def generate_otp() -> str:
 
 async def send_otp(redis, phone_number: str) -> None:
     """
-    Generates an OTP, stores it in Redis with TTL, and sends via SMS provider.
-    Swap the send step for Twilio Verify / Africa's Talking / local SMS
-    gateway as appropriate for Tanzania.
+    Generates an OTP, stores it in Redis with TTL, and sends via Twilio SMS.
+    Falls back to logging only (no real SMS) if Twilio credentials aren't
+    configured - keeps local dev working without requiring real creds.
     """
     code = generate_otp()
     key = f"otp:{phone_number}"
     await redis.set(key, code, ex=OTP_TTL_MINUTES * 60)
 
-    # TODO: wire to actual SMS provider, e.g.:
-    # await sms_client.send(to=phone_number, body=f"Your LiberChat code: {code}")
+    if settings.twilio_account_sid and settings.twilio_auth_token and settings.twilio_phone_number:
+        from twilio.rest import Client
+        client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
+        client.messages.create(
+            to=phone_number,
+            from_=settings.twilio_phone_number,
+            body=f"Your LiberChat verification code is: {code}",
+        )
+    else:
+        print(f"[DEV ONLY - no Twilio configured] OTP for {phone_number}: {code}")
 
 
 async def verify_otp(redis, phone_number: str, code: str) -> bool:

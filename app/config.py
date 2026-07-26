@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     media_session_timeout_minutes: int = 5
     post_default_expiry_hours: int = 72
 
-    sms_provider_api_key: str = ""   # e.g. Twilio / Africa's Talking
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_phone_number: str = ""
 
     # TEMPORARY: exposes OTP codes via an API endpoint for testing before
     # a real SMS provider is wired up. Must be false/unset in any real
