@@ -66,6 +66,7 @@ async def list_threads(db: Session = Depends(get_db), current_user: User = Depen
             id=t.id,
             other_user_handle=other_user.handle if other_user else "Unknown",
             last_message_at=t.last_message_at,
+            last_message_from_me=bool(last_message and last_message.sender_id == current_user.id),
             unread=unread,
             reported=t.blocked,
         ))

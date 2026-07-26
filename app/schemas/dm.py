@@ -36,5 +36,6 @@ class ThreadSummaryOut(BaseModel):
     id: uuid.UUID
     other_user_handle: str
     last_message_at: datetime
+    last_message_from_me: bool
     unread: bool
     reported: bool
