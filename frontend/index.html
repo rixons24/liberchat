@@ -1423,6 +1423,16 @@ if (window.location.hash === "#admin") {
 
 render();
 
+// Re-check routing whenever the URL hash changes without a full page
+// reload (e.g. someone edits the address bar of an already-open tab).
+// Without this, #admin only worked on a fresh page load.
+window.addEventListener("hashchange", () => {
+  if (window.location.hash === "#admin" && !state.adminAuthenticated) {
+    state.screen = "adminLogin";
+    render();
+  }
+});
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("sw.js").catch(() => {
