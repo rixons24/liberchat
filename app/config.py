@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     # once SMS_PROVIDER_API_KEY is set and confirmed working.
     debug_otp_endpoint_enabled: bool = False
 
+    # TEMPORARY: same pattern as debug_otp_endpoint_enabled. Lets you
+    # create the FIRST admin account via HTTP instead of a shell (needed
+    # since Render's free tier has no Shell/One-Off Jobs access). This
+    # endpoint self-disables after the first admin account exists, and
+    # you should unset this env var once you've used it regardless.
+    bootstrap_admin_enabled: bool = False
+
     class Config:
         env_file = ".env"
 
