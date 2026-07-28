@@ -21,6 +21,17 @@ def _severity_rank(reason):
     return 2
 
 
+@router.get("/audit")
+async def get_audit_log(db: Session = Depends(get_db), _mod=Depends(get_current_moderator)):
+    reports = (
+        db.query(Report)
+        .filter(Report.status == ReportStatus.resolved)
+        .order_by(Report.resolved_at.desc())
+        .all()
+    )
+    return reports
+
+
 @router.get("/queue")
 async def get_queue(db: Session = Depends(get_db), _mod=Depends(get_current_moderator)):
     reports = (

@@ -124,8 +124,12 @@ const state = {
   composeModalOpen: false,
   modTab: "queue",         // queue | audit
   modSelectedReportId: null,
+  modQueue: [],
+  modAuditLog: [],
+  modCaseDetail: null,
   attachModalOpen: false,
   adminAuthenticated: false,
+  adminToken: null,
   adminLoginError: null,
   authToken: null,
   pendingSignup: null,     // holds form data between signup/start and OTP verify
@@ -144,13 +148,6 @@ const state = {
   audioChunks: [],
   recordedAudioBlob: null,
 };
-
-// Mock only — the real backend never exposes admin creds this way. See
-// app/routers/admin_auth.py: this is a genuinely separate credential
-// system (separate admin_users table, separate JWT token type) with no
-// public self-registration endpoint. This mock just simulates the same
-// shape for the prototype.
-const MOCK_ADMIN_CREDENTIALS = { username: "libermod01", password: "adminpassword12345" };
 
 // ---------- Real backend wiring ----------
 // Point this at your deployed API. Auth/posts now hit the real FastAPI
@@ -191,34 +188,6 @@ const posts = [];
 
 
 
-const TIER1 = new Set(["underage", "threat", "nonconsensual"]);
-const TIER2 = new Set(["solicit", "harass", "unsolicited"]);
-
-function severityOf(reason) {
-  if (TIER1.has(reason)) return 1;
-  if (TIER2.has(reason)) return 2;
-  return 3;
-}
-
-let reportSeq = 4;
-const reports = [
-  {
-    id: "R-0001", reason: "underage", detail: "Profile bio mentions being 16.",
-    reportedHandle: "QuietFalcon42", reportedPostCode: "0091", createdAt: "2026-07-22 09:14",
-    status: "open", priorReportsAgainst: 0, priorReportsByReporter: 1,
-  },
-  {
-    id: "R-0002", reason: "harass", detail: "Kept messaging after I said I wasn't interested.",
-    reportedHandle: "IronOtter88", reportedPostCode: "0077", createdAt: "2026-07-22 11:30",
-    status: "open", priorReportsAgainst: 1, priorReportsByReporter: 3,
-  },
-  {
-    id: "R-0003", reason: "scam", detail: "Asked me to pay a deposit off-platform before meeting.",
-    reportedHandle: "SilverEcho19", reportedPostCode: "0064", createdAt: "2026-07-21 20:05",
-    status: "open", priorReportsAgainst: 2, priorReportsByReporter: 1,
-  },
-];
-const auditLog = [];
 
 // ---------- Helpers ----------
 function render() {
@@ -884,33 +853,36 @@ function AdminLoginScreen() {
   const panel = el("div", { class: "panel", style: "padding:24px; width:100%; display:flex; flex-direction:column; gap:14px;" });
 
   panel.appendChild(el("span", { class: "label" }, "Admin access"));
-  panel.appendChild(el("p", { style: "font-size:13px; color:#8C8A82; line-height:1.5;" },
+  panel.appendChild(el("p", { style: "font-size:13px; color:var(--muted); line-height:1.5;" },
     "This is a separate login from regular LiberChat accounts. Admin credentials are issued out-of-band and are never created through the app."));
 
   const userInput = el("input", { type: "text", placeholder: "Admin username", autocomplete: "off" });
-  userInput.style.cssText = "font-family:'IBM Plex Mono',monospace; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; background:#fff;";
+  userInput.style.cssText = "font-family:'IBM Plex Mono',monospace; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid var(--line); background:var(--input-bg);";
   const passInput = el("input", { type: "password", placeholder: "Password" });
-  passInput.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid #C9C7BC; background:#fff;";
+  passInput.style.cssText = "font-family:'Inter'; font-size:16px; padding:12px 16px; min-height:44px; border:1px solid var(--line); background:var(--input-bg);";
 
   panel.appendChild(userInput);
   panel.appendChild(passInput);
 
   if (state.adminLoginError) {
-    panel.appendChild(el("span", { class: "label", style: "color:#B23B2E;" }, state.adminLoginError));
+    panel.appendChild(el("span", { class: "label", style: "color:var(--danger);" }, state.adminLoginError));
   }
 
   const submit = el("button", { class: "btn-primary" }, "Sign in");
-  submit.addEventListener("click", () => {
-    // In the real app this calls POST /admin/login against the separate
-    // admin_users table and receives a token typed "admin" — a regular
-    // user's token/credentials can never satisfy this, in either direction.
-    if (userInput.value === MOCK_ADMIN_CREDENTIALS.username && passInput.value === MOCK_ADMIN_CREDENTIALS.password) {
+  submit.addEventListener("click", async () => {
+    try {
+      const resp = await api("/admin/login", {
+        method: "POST",
+        body: { username: userInput.value.trim(), password: passInput.value },
+      });
+      state.adminToken = resp.access_token;
       state.adminAuthenticated = true;
       state.adminLoginError = null;
       state.screen = "mod";
       render();
-    } else {
-      state.adminLoginError = "Invalid credentials.";
+      loadModQueue();
+    } catch (e) {
+      state.adminLoginError = e.message;
       render();
     }
   });
@@ -920,6 +892,33 @@ function AdminLoginScreen() {
   return wrap;
 }
 
+async function loadModQueue() {
+  try {
+    state.modQueue = await api("/mod/queue", { token: state.adminToken });
+  } catch (e) {
+    showToast("Could not load queue: " + e.message);
+  }
+  render();
+}
+
+async function loadModAudit() {
+  try {
+    state.modAuditLog = await api("/mod/audit", { token: state.adminToken });
+  } catch (e) {
+    showToast("Could not load audit log: " + e.message);
+  }
+  render();
+}
+
+async function loadCaseDetail(reportId) {
+  try {
+    state.modCaseDetail = await api(`/mod/case/${reportId}`, { token: state.adminToken });
+  } catch (e) {
+    showToast("Could not load case: " + e.message);
+  }
+  render();
+}
+
 function ModScreen() {
   const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
 
@@ -927,6 +926,7 @@ function ModScreen() {
   const back = el("button", { class: "btn-ghost" }, "← Sign out");
   back.addEventListener("click", () => {
     state.adminAuthenticated = false;
+    state.adminToken = null;
     state.screen = "feed";
     state.modSelectedReportId = null;
     render();
@@ -935,12 +935,18 @@ function ModScreen() {
   header.appendChild(el("span", { class: "label" }, "MOD CONSOLE"));
   wrap.appendChild(header);
 
-  const tabs = el("div", { style: "display:flex; border-bottom:1px solid #C9C7BC;" });
+  const tabs = el("div", { style: "display:flex; border-bottom:1px solid var(--line);" });
   ["queue", "audit"].forEach((tab) => {
     const t = el("button", {
-      style: `flex:1; padding:12px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; border-bottom:2px solid ${state.modTab === tab ? "#FF4B1F" : "transparent"}; color:${state.modTab === tab ? "#141414" : "#8C8A82"};`,
-    }, tab === "queue" ? `Queue (${reports.filter(r=>r.status==="open").length})` : `Audit log (${auditLog.length})`);
-    t.addEventListener("click", () => { state.modTab = tab; state.modSelectedReportId = null; render(); });
+      style: `flex:1; padding:12px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; border-bottom:2px solid ${state.modTab === tab ? "var(--accent)" : "transparent"}; color:${state.modTab === tab ? "var(--ink)" : "var(--muted)"};`,
+    }, tab === "queue" ? `Queue (${state.modQueue.length})` : `Audit log (${state.modAuditLog.length})`);
+    t.addEventListener("click", () => {
+      state.modTab = tab;
+      state.modSelectedReportId = null;
+      state.modCaseDetail = null;
+      render();
+      if (tab === "queue") loadModQueue(); else loadModAudit();
+    });
     tabs.appendChild(t);
   });
   wrap.appendChild(tabs);
@@ -948,64 +954,85 @@ function ModScreen() {
   const main = el("main", {});
 
   if (state.modTab === "queue") {
-    const open = reports.filter((r) => r.status === "open").sort((a, b) => severityOf(a.reason) - severityOf(b.reason));
+    const open = state.modQueue.slice().sort((a, b) => severityOf(a.reason) - severityOf(b.reason));
     if (open.length === 0) main.appendChild(el("div", { class: "empty" }, "Queue is empty."));
-    open.forEach((r) => main.appendChild(state.modSelectedReportId === r.id ? CaseDetail(r) : QueueRow(r)));
+    open.forEach((r) => {
+      if (state.modSelectedReportId === r.id && state.modCaseDetail) {
+        main.appendChild(CaseDetail(state.modCaseDetail, r));
+      } else {
+        main.appendChild(QueueRow(r));
+      }
+    });
   } else {
-    if (auditLog.length === 0) main.appendChild(el("div", { class: "empty" }, "No resolved cases yet."));
-    auditLog.slice().reverse().forEach((r) => main.appendChild(AuditRow(r)));
+    if (state.modAuditLog.length === 0) main.appendChild(el("div", { class: "empty" }, "No resolved cases yet."));
+    state.modAuditLog.forEach((r) => main.appendChild(AuditRow(r)));
   }
 
   wrap.appendChild(main);
   return wrap;
 }
 
+// Matches the real backend's ReportReason enum values exactly (see
+// app/models/report.py) - these are NOT the same as the short keys used
+// when filing a report from the user-facing ReportModal (that modal maps
+// its own short keys to these backend values before sending).
+const TIER1 = new Set(["underage", "threat_or_violence", "non_consensual"]);
+const TIER2 = new Set(["solicitation", "harassment", "unsolicited_explicit_media"]);
+
+function severityOf(reason) {
+  if (TIER1.has(reason)) return 1;
+  if (TIER2.has(reason)) return 2;
+  return 3;
+}
+
 function severityLabel(reason) {
   const s = severityOf(reason);
-  if (s === 1) return { text: "TIER 1", color: "#B23B2E" };
+  if (s === 1) return { text: "TIER 1", color: "var(--danger)" };
   if (s === 2) return { text: "TIER 2", color: "#C97A00" };
-  return { text: "TIER 3", color: "#8C8A82" };
+  return { text: "TIER 3", color: "var(--muted)" };
 }
 
 function QueueRow(r) {
   const sev = severityLabel(r.reason);
   const row = el("div", { class: "panel", style: `padding:14px; margin-bottom:10px; border-left:3px solid ${sev.color}; cursor:pointer;` });
-  row.addEventListener("click", () => { state.modSelectedReportId = r.id; render(); });
+  row.addEventListener("click", () => { state.modSelectedReportId = r.id; render(); loadCaseDetail(r.id); });
   row.appendChild(el("div", { style: "display:flex; justify-content:space-between;" }, [
     el("span", { class: "label", style: `color:${sev.color};` }, `${sev.text} — ${r.reason.toUpperCase()}`),
-    el("span", { class: "label" }, r.id),
+    el("span", { class: "label" }, r.id.slice(0, 8).toUpperCase()),
   ]));
-  row.appendChild(el("p", { style: "font-size:13px; margin-top:8px;" }, r.detail));
+  row.appendChild(el("p", { style: "font-size:13px; margin-top:8px;" }, r.detail_text || "(no detail provided)"));
   row.appendChild(el("div", { style: "display:flex; justify-content:space-between; margin-top:8px;" }, [
-    el("span", { class: "label" }, `@${r.reportedHandle} · POST/${r.reportedPostCode}`),
-    el("span", { class: "label" }, r.createdAt),
+    el("span", { class: "label" }, `reported user: ${r.reported_user_id.slice(0, 8).toUpperCase()}`),
+    el("span", { class: "label" }, new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })),
   ]));
   return row;
 }
 
-function CaseDetail(r) {
+function CaseDetail(detail, r) {
   const sev = severityLabel(r.reason);
   const wrap = el("div", { class: "panel", style: `padding:16px; margin-bottom:10px; border-left:3px solid ${sev.color};` });
 
   wrap.appendChild(el("div", { style: "display:flex; justify-content:space-between;" }, [
     el("span", { class: "label", style: `color:${sev.color};` }, `${sev.text} — ${r.reason.toUpperCase()}`),
-    el("span", { class: "label" }, r.id),
+    el("span", { class: "label" }, r.id.slice(0, 8).toUpperCase()),
   ]));
-  wrap.appendChild(el("p", { style: "font-size:14px; margin:10px 0; line-height:1.5;" }, r.detail));
+  wrap.appendChild(el("p", { style: "font-size:14px; margin:10px 0; line-height:1.5;" }, r.detail_text || "(no detail provided)"));
 
-  const meta = el("div", { class: "label", style: "display:flex; flex-direction:column; gap:4px; border-top:1px solid #C9C7BC; border-bottom:1px solid #C9C7BC; padding:10px 0; margin-bottom:10px;" });
-  meta.appendChild(el("span", {}, `Reported user: @${r.reportedHandle}`));
-  meta.appendChild(el("span", {}, `Source: POST/${r.reportedPostCode}`));
-  meta.appendChild(el("span", {}, `Prior reports against this user: ${r.priorReportsAgainst}`));
-  meta.appendChild(el("span", {}, `Prior reports filed by this reporter: ${r.priorReportsByReporter}`));
+  const ru = detail.reported_user;
+  const meta = el("div", { class: "label", style: "display:flex; flex-direction:column; gap:4px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:10px 0; margin-bottom:10px;" });
+  meta.appendChild(el("span", {}, `Reported user: @${ru.handle} (status: ${ru.status})`));
+  meta.appendChild(el("span", {}, `Account created: ${new Date(ru.created_at).toLocaleDateString()}`));
+  meta.appendChild(el("span", {}, `Strikes: ${ru.strikes}`));
+  meta.appendChild(el("span", {}, `Prior reports against this user: ${detail.prior_reports_against_user}`));
+  meta.appendChild(el("span", {}, `Prior reports filed by this reporter: ${detail.prior_reports_filed_by_this_reporter}`));
   wrap.appendChild(meta);
 
   const noteArea = document.createElement("textarea");
   noteArea.placeholder = "Required: note explaining your decision before this case can close.";
-  noteArea.style.cssText = "font-family:'Inter'; font-size:14px; padding:10px; min-height:70px; border:1px solid #C9C7BC; background:#fff; width:100%; margin-bottom:10px;";
+  noteArea.style.cssText = "font-family:'Inter'; font-size:14px; padding:10px 16px; min-height:70px; border:1px solid var(--line); background:var(--input-bg); width:100%; margin-bottom:10px;";
   wrap.appendChild(noteArea);
 
-  const errorMsg = el("span", { class: "label", style: "color:#B23B2E; display:none; margin-bottom:8px;" }, "A note is required to close this case.");
+  const errorMsg = el("span", { class: "label", style: "color:var(--danger); display:none; margin-bottom:8px;" }, "");
   wrap.appendChild(errorMsg);
 
   const actions = [
@@ -1021,23 +1048,34 @@ function CaseDetail(r) {
   const actionGrid = el("div", { style: "display:flex; flex-direction:column; gap:8px;" });
   actions.forEach((a) => {
     const b = el("button", { class: a.danger ? "btn-danger" : "btn-secondary", style: "width:100%; text-align:center;" }, a.label);
-    b.addEventListener("click", () => {
-      if (!noteArea.value.trim()) { errorMsg.style.display = "block"; return; }
-      r.status = "resolved";
-      r.modAction = a.key;
-      r.modNote = noteArea.value.trim();
-      r.resolvedAt = new Date().toISOString().slice(0, 16).replace("T", " ");
-      auditLog.push(r);
-      state.modSelectedReportId = null;
-      render();
-      showToast(a.danger ? "Case closed — routed to NCMEC review" : "Case closed");
+    b.addEventListener("click", async () => {
+      if (!noteArea.value.trim()) {
+        errorMsg.textContent = "A note is required to close this case.";
+        errorMsg.style.display = "block";
+        return;
+      }
+      try {
+        await api(`/mod/case/${r.id}/action`, {
+          method: "POST",
+          token: state.adminToken,
+          body: { action: a.key, note: noteArea.value.trim() },
+        });
+        state.modSelectedReportId = null;
+        state.modCaseDetail = null;
+        render();
+        showToast(a.danger ? "Case closed — routed to NCMEC review" : "Case closed");
+        loadModQueue();
+      } catch (e) {
+        errorMsg.textContent = e.message;
+        errorMsg.style.display = "block";
+      }
     });
     actionGrid.appendChild(b);
   });
   wrap.appendChild(actionGrid);
 
   const cancel = el("button", { class: "btn-ghost", style: "margin-top:8px;" }, "Close without deciding");
-  cancel.addEventListener("click", () => { state.modSelectedReportId = null; render(); });
+  cancel.addEventListener("click", () => { state.modSelectedReportId = null; state.modCaseDetail = null; render(); });
   wrap.appendChild(cancel);
 
   return wrap;
@@ -1046,11 +1084,11 @@ function CaseDetail(r) {
 function AuditRow(r) {
   const row = el("div", { class: "panel", style: "padding:14px; margin-bottom:10px;" });
   row.appendChild(el("div", { style: "display:flex; justify-content:space-between;" }, [
-    el("span", { class: "label" }, r.id),
-    el("span", { class: "label" }, r.resolvedAt),
+    el("span", { class: "label" }, r.id.slice(0, 8).toUpperCase()),
+    el("span", { class: "label" }, r.resolved_at ? new Date(r.resolved_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""),
   ]));
-  row.appendChild(el("p", { style: "font-size:13px; margin-top:8px;" }, `Action: ${r.modAction.replace(/_/g, " ")}`));
-  row.appendChild(el("p", { style: "font-size:13px; color:#8C8A82; margin-top:4px;" }, `Note: ${r.modNote}`));
+  row.appendChild(el("p", { style: "font-size:13px; margin-top:8px;" }, `Action: ${(r.mod_action || "").replace(/_/g, " ")}`));
+  row.appendChild(el("p", { style: "font-size:13px; color:var(--muted); margin-top:4px;" }, `Note: ${r.mod_note || ""}`));
   return row;
 }
 
