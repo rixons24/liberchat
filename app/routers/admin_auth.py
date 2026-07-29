@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from app.core.deps import get_db
+from app.core.deps import get_db, get_current_moderator
 from app.core.security import create_access_token
 from app.config import settings
 from app.services import auth_service
@@ -23,6 +23,11 @@ class AdminLoginResponse(BaseModel):
     username: str
     access_token: str
     token_type: str = "bearer"
+
+
+class AdminCreateRequest(BaseModel):
+    username: str
+    password: str
 
 
 @router.post("/login", response_model=AdminLoginResponse)
@@ -73,3 +78,41 @@ async def bootstrap_admin(username: str, password: str, db: Session = Depends(ge
     db.add(admin)
     db.commit()
     return {"message": f"Admin account '{username}' created. Now set BOOTSTRAP_ADMIN_ENABLED back to false."}
+
+
+@router.get("/list")
+async def list_admins(db: Session = Depends(get_db), _mod=Depends(get_current_moderator)):
+    """Any logged-in admin can see who else has admin access — basic
+    transparency for a small moderator team."""
+    admins = db.query(AdminUser).order_by(AdminUser.created_at.asc()).all()
+    return [
+        {
+            "id": str(a.id),
+            "username": a.username,
+            "is_active": a.is_active,
+            "created_at": a.created_at,
+            "last_login_at": a.last_login_at,
+        }
+        for a in admins
+    ]
+
+
+@router.post("/create")
+async def create_admin(
+    payload: AdminCreateRequest,
+    db: Session = Depends(get_db),
+    _mod=Depends(get_current_moderator),
+):
+    """The normal, ongoing way to add admins once at least one exists -
+    requires being logged in as an existing admin. The /bootstrap
+    endpoint above is only for creating the very first one."""
+    if db.query(AdminUser).filter_by(username=payload.username).first():
+        raise HTTPException(status_code=400, detail="That username is already taken.")
+
+    if len(payload.password) < 12:
+        raise HTTPException(status_code=400, detail="Password must be at least 12 characters.")
+
+    admin = AdminUser(username=payload.username, password_hash=auth_service.hash_password(payload.password))
+    db.add(admin)
+    db.commit()
+    return {"message": f"Admin account '{payload.username}' created."}

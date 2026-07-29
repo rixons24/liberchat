@@ -8,7 +8,7 @@ from app.core.deps import get_db, get_current_moderator
 from app.models.report import Report, ReportStatus, TIER_1_REASONS, TIER_2_REASONS
 from app.models.user import User, UserStatus
 from app.models.banned_contact import BannedContact
-from app.schemas.moderation import ModerationAction
+from app.schemas.moderation import ModerationAction, UserBanRequest
 
 router = APIRouter()
 
@@ -129,3 +129,111 @@ async def take_action(
 
     db.commit()
     return {"message": "Case closed.", "action": payload.action}
+
+
+@router.get("/users")
+async def list_users(
+    db: Session = Depends(get_db),
+    _mod=Depends(get_current_moderator),
+    limit: int = 100,
+    offset: int = 0,
+):
+    total = db.query(User).count()
+    users = (
+        db.query(User)
+        .order_by(User.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return {
+        "total": total,
+        "users": [
+            {
+                "id": str(u.id),
+                "handle": u.handle,
+                "status": u.status,
+                "created_at": u.created_at,
+                "strikes": u.strikes,
+                "report_count": u.report_count,
+            }
+            for u in users
+        ],
+    }
+
+
+@router.post("/users/{user_id}/ban")
+async def ban_user(
+    user_id: str,
+    payload: UserBanRequest,
+    db: Session = Depends(get_db),
+    mod=Depends(get_current_moderator),
+):
+    """Direct ban outside the report-driven flow — for cases where a
+    moderator spots something without a user report existing yet."""
+    if not payload.note or not payload.note.strip():
+        raise HTTPException(status_code=400, detail="A note is required to ban a user.")
+
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    if user.status == UserStatus.banned:
+        raise HTTPException(status_code=400, detail="User is already banned.")
+
+    user.status = UserStatus.banned
+    db.add(BannedContact(
+        contact_ref_hash=user.contact_ref_hash,
+        reason=f"Direct admin ban: {payload.note[:200]}",
+        banned_by_mod_id=mod.id,
+    ))
+    db.commit()
+    return {"message": f"User '{user.handle}' banned."}
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _mod=Depends(get_current_moderator),
+):
+    """
+    Hard delete — permanently removes the account and everything tied to
+    it. Unlike ban, this does NOT add a banned_contacts entry, so the
+    same phone number could sign up again. Use ban for abuse/policy
+    violations; use delete for cleanup (test accounts, GDPR-style
+    erasure requests, etc.).
+    """
+    from app.models.post import Post
+    from app.models.dm import DMThread, Message
+    from app.models.media import Media
+    from app.models.report import MessageReport, Block, ThreadRead
+
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    thread_ids = [t.id for t in db.query(DMThread.id).filter(
+        (DMThread.user_a_id == user.id) | (DMThread.user_b_id == user.id)
+    ).all()]
+
+    if thread_ids:
+        db.query(MessageReport).filter(MessageReport.thread_id.in_(thread_ids)).delete(synchronize_session=False)
+        message_ids = [m.id for m in db.query(Message.id).filter(Message.thread_id.in_(thread_ids)).all()]
+        if message_ids:
+            db.query(Media).filter(Media.message_id.in_(message_ids)).delete(synchronize_session=False)
+        db.query(Message).filter(Message.thread_id.in_(thread_ids)).delete(synchronize_session=False)
+        db.query(ThreadRead).filter(ThreadRead.thread_id.in_(thread_ids)).delete(synchronize_session=False)
+        db.query(DMThread).filter(DMThread.id.in_(thread_ids)).delete(synchronize_session=False)
+
+    db.query(Report).filter(
+        (Report.reporter_id == user.id) | (Report.reported_user_id == user.id)
+    ).delete(synchronize_session=False)
+    db.query(Block).filter(
+        (Block.blocker_id == user.id) | (Block.blocked_id == user.id)
+    ).delete(synchronize_session=False)
+    db.query(Post).filter_by(author_id=user.id).delete(synchronize_session=False)
+
+    handle = user.handle
+    db.delete(user)
+    db.commit()
+    return {"message": f"User '{handle}' permanently deleted."}

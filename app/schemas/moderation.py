@@ -12,3 +12,7 @@ class ModerationAction(BaseModel):
         "remove_ban_and_report_ncmec",
     ]
     note: str = Field(..., min_length=1, description="Required audit note explaining the decision.")
+
+
+class UserBanRequest(BaseModel):
+    note: str = Field(..., min_length=1, description="Required audit note explaining the ban.")

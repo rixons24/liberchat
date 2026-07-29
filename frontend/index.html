@@ -122,11 +122,14 @@ const state = {
   viewerMedia: null,       // { id, type, viewCount, consumed }
   reportModalOpen: false,
   composeModalOpen: false,
-  modTab: "queue",         // queue | audit
+  modTab: "queue",         // queue | audit | users | admins
   modSelectedReportId: null,
   modQueue: [],
   modAuditLog: [],
   modCaseDetail: null,
+  modUsers: [],
+  modUserTotal: 0,
+  modAdmins: [],
   attachModalOpen: false,
   adminAuthenticated: false,
   adminToken: null,
@@ -919,6 +922,26 @@ async function loadCaseDetail(reportId) {
   render();
 }
 
+async function loadModUsers() {
+  try {
+    const data = await api("/mod/users", { token: state.adminToken });
+    state.modUsers = data.users;
+    state.modUserTotal = data.total;
+  } catch (e) {
+    showToast("Could not load users: " + e.message);
+  }
+  render();
+}
+
+async function loadModAdmins() {
+  try {
+    state.modAdmins = await api("/admin/list", { token: state.adminToken });
+  } catch (e) {
+    showToast("Could not load admins: " + e.message);
+  }
+  render();
+}
+
 function ModScreen() {
   const wrap = el("div", { style: "display:flex; flex-direction:column; flex:1; min-height:0;" });
 
@@ -935,17 +958,26 @@ function ModScreen() {
   header.appendChild(el("span", { class: "label" }, "MOD CONSOLE"));
   wrap.appendChild(header);
 
-  const tabs = el("div", { style: "display:flex; border-bottom:1px solid var(--line);" });
-  ["queue", "audit"].forEach((tab) => {
+  const tabs = el("div", { style: "display:flex; border-bottom:1px solid var(--line); flex-wrap:wrap;" });
+  ["queue", "audit", "users", "admins"].forEach((tab) => {
+    const labels = {
+      queue: `Queue (${state.modQueue.length})`,
+      audit: `Audit (${state.modAuditLog.length})`,
+      users: `Users (${state.modUserTotal})`,
+      admins: `Admins (${state.modAdmins.length})`,
+    };
     const t = el("button", {
-      style: `flex:1; padding:12px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; border-bottom:2px solid ${state.modTab === tab ? "var(--accent)" : "transparent"}; color:${state.modTab === tab ? "var(--ink)" : "var(--muted)"};`,
-    }, tab === "queue" ? `Queue (${state.modQueue.length})` : `Audit log (${state.modAuditLog.length})`);
+      style: `flex:1; min-width:80px; padding:12px; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; border-bottom:2px solid ${state.modTab === tab ? "var(--accent)" : "transparent"}; color:${state.modTab === tab ? "var(--ink)" : "var(--muted)"};`,
+    }, labels[tab]);
     t.addEventListener("click", () => {
       state.modTab = tab;
       state.modSelectedReportId = null;
       state.modCaseDetail = null;
       render();
-      if (tab === "queue") loadModQueue(); else loadModAudit();
+      if (tab === "queue") loadModQueue();
+      else if (tab === "audit") loadModAudit();
+      else if (tab === "users") loadModUsers();
+      else if (tab === "admins") loadModAdmins();
     });
     tabs.appendChild(t);
   });
@@ -963,9 +995,13 @@ function ModScreen() {
         main.appendChild(QueueRow(r));
       }
     });
-  } else {
+  } else if (state.modTab === "audit") {
     if (state.modAuditLog.length === 0) main.appendChild(el("div", { class: "empty" }, "No resolved cases yet."));
     state.modAuditLog.forEach((r) => main.appendChild(AuditRow(r)));
+  } else if (state.modTab === "users") {
+    main.appendChild(UsersTab());
+  } else if (state.modTab === "admins") {
+    main.appendChild(AdminsTab());
   }
 
   wrap.appendChild(main);
@@ -1090,6 +1126,107 @@ function AuditRow(r) {
   row.appendChild(el("p", { style: "font-size:13px; margin-top:8px;" }, `Action: ${(r.mod_action || "").replace(/_/g, " ")}`));
   row.appendChild(el("p", { style: "font-size:13px; color:var(--muted); margin-top:4px;" }, `Note: ${r.mod_note || ""}`));
   return row;
+}
+
+function UsersTab() {
+  const wrap = el("div", {});
+
+  if (state.modUsers.length === 0) {
+    wrap.appendChild(el("div", { class: "empty" }, "No users yet."));
+    return wrap;
+  }
+
+  state.modUsers.forEach((u) => {
+    const isBanned = u.status === "banned";
+    const row = el("div", { class: "panel", style: "padding:14px; margin-bottom:10px;" });
+
+    row.appendChild(el("div", { style: "display:flex; justify-content:space-between; align-items:center;" }, [
+      el("span", { style: "font-size:14px;" }, `@${u.handle}`),
+      el("span", { class: "label", style: isBanned ? "color:var(--danger);" : "" }, u.status.toUpperCase()),
+    ]));
+    row.appendChild(el("div", { class: "label", style: "margin-top:6px;" },
+      `Joined ${new Date(u.created_at).toLocaleDateString()} · ${u.strikes} strike(s) · ${u.report_count} report(s) filed against them`));
+
+    const actions = el("div", { style: "display:flex; gap:8px; margin-top:10px;" });
+
+    if (!isBanned) {
+      const banBtn = el("button", { class: "btn-danger" }, "Ban");
+      banBtn.addEventListener("click", () => {
+        const note = prompt(`Reason for banning @${u.handle} (required):`);
+        if (!note || !note.trim()) return;
+        api(`/mod/users/${u.id}/ban`, { method: "POST", token: state.adminToken, body: { note: note.trim() } })
+          .then(() => { showToast(`@${u.handle} banned.`); loadModUsers(); })
+          .catch((e) => showToast("Could not ban: " + e.message));
+      });
+      actions.appendChild(banBtn);
+    }
+
+    const deleteBtn = el("button", { class: "btn-ghost" }, "Delete permanently");
+    deleteBtn.addEventListener("click", () => {
+      if (!confirm(`Permanently delete @${u.handle} and all their posts/messages? This cannot be undone.`)) return;
+      api(`/mod/users/${u.id}`, { method: "DELETE", token: state.adminToken })
+        .then(() => { showToast(`@${u.handle} deleted.`); loadModUsers(); })
+        .catch((e) => showToast("Could not delete: " + e.message));
+    });
+    actions.appendChild(deleteBtn);
+
+    row.appendChild(actions);
+    wrap.appendChild(row);
+  });
+
+  return wrap;
+}
+
+function AdminsTab() {
+  const wrap = el("div", {});
+
+  const createPanel = el("div", { class: "panel", style: "padding:16px; margin-bottom:16px; display:flex; flex-direction:column; gap:8px;" });
+  createPanel.appendChild(el("span", { class: "label" }, "Add a new admin"));
+
+  const newUser = field("text", "Username");
+  const newPass = field("password", "Password (12+ characters)");
+  createPanel.appendChild(newUser);
+  createPanel.appendChild(newPass);
+
+  const createErr = el("span", { class: "label", style: "color:var(--danger); display:none;" }, "");
+  createPanel.appendChild(createErr);
+
+  const createBtn = el("button", { class: "btn-primary" }, "Create admin");
+  createBtn.addEventListener("click", async () => {
+    try {
+      await api("/admin/create", {
+        method: "POST",
+        token: state.adminToken,
+        body: { username: newUser.value.trim(), password: newPass.value },
+      });
+      showToast(`Admin '${newUser.value.trim()}' created.`);
+      newUser.value = ""; newPass.value = "";
+      loadModAdmins();
+    } catch (e) {
+      createErr.textContent = e.message;
+      createErr.style.display = "block";
+    }
+  });
+  createPanel.appendChild(createBtn);
+  wrap.appendChild(createPanel);
+
+  if (state.modAdmins.length === 0) {
+    wrap.appendChild(el("div", { class: "empty" }, "Loading admins..."));
+    return wrap;
+  }
+
+  state.modAdmins.forEach((a) => {
+    const row = el("div", { class: "panel", style: "padding:14px; margin-bottom:10px;" });
+    row.appendChild(el("div", { style: "display:flex; justify-content:space-between;" }, [
+      el("span", { style: "font-size:14px;" }, a.username),
+      el("span", { class: "label" }, a.is_active ? "ACTIVE" : "DISABLED"),
+    ]));
+    row.appendChild(el("div", { class: "label", style: "margin-top:6px;" },
+      `Created ${new Date(a.created_at).toLocaleDateString()} · Last login: ${a.last_login_at ? new Date(a.last_login_at).toLocaleString() : "never"}`));
+    wrap.appendChild(row);
+  });
+
+  return wrap;
 }
 
 function nowTime() {
