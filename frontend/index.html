@@ -973,6 +973,16 @@ function ModScreen() {
   });
   header.appendChild(back);
   header.appendChild(el("span", { class: "label" }, "MOD CONSOLE"));
+
+  const darkBtn = el("button", { class: "btn-ghost" }, state.darkMode ? "☀ Light" : "☾ Dark");
+  darkBtn.addEventListener("click", () => {
+    state.darkMode = !state.darkMode;
+    localStorage.setItem("liberchat_dark_mode", state.darkMode ? "true" : "false");
+    document.body.classList.toggle("dark", state.darkMode);
+    render();
+  });
+  header.appendChild(darkBtn);
+
   wrap.appendChild(header);
 
   const tabs = el("div", { style: "display:flex; border-bottom:1px solid var(--line); flex-wrap:wrap;" });
