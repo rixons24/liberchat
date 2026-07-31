@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.core.deps import get_db, get_current_user
+from app.core.rate_limit import limiter
 from app.models.report import Report, MessageReport, ReportReason, ReportStatus, TIER_1_REASONS
 from app.models.user import User, UserStatus
 from app.models.dm import DMThread, Message
@@ -18,7 +19,9 @@ REPEAT_REPORT_WINDOW_HOURS = 72
 
 
 @router.post("/file")
+@limiter.limit("20/hour")
 async def file_report(
+    request: Request,
     payload: ReportCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

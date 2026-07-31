@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, Request
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_current_user
+from app.core.rate_limit import limiter
 from app.models.user import User
 from app.models.media import Media, MediaType, MediaScanStatus
 from app.services import media_pipeline
@@ -11,7 +12,9 @@ router = APIRouter()
 
 
 @router.post("/upload")
+@limiter.limit("30/hour")
 async def upload_media(
+    request: Request,
     file: UploadFile,
     media_type: MediaType = Form(...),
     duration_seconds: int | None = Form(None),

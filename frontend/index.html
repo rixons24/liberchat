@@ -121,6 +121,7 @@ const state = {
   toast: null,
   viewerMedia: null,       // { id, type, viewCount, consumed }
   reportModalOpen: false,
+  reportTarget: null,      // { reportedUserId, postId?, threadId? }
   composeModalOpen: false,
   modTab: "queue",         // queue | audit | users | admins
   modSelectedReportId: null,
@@ -461,6 +462,7 @@ async function loadFeed() {
         body: p.body_text,
         location: p.location_label || "NO LOCATION SET",
         tags: p.intent_tags && p.intent_tags.length ? p.intent_tags : ["OTHER"],
+        authorId: p.author_id,
       });
     });
   } catch (e) {
@@ -615,6 +617,16 @@ function FeedScreen() {
     const respondBtn = el("button", { class: "btn-secondary" }, "Respond");
     respondBtn.addEventListener("click", (e) => { e.stopPropagation(); openThread(p.id); });
     bottom.appendChild(respondBtn);
+
+    const reportBtn = el("button", { class: "btn-danger" }, "Report");
+    reportBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.reportTarget = { reportedUserId: p.authorId, postId: p.id };
+      state.reportModalOpen = true;
+      render();
+    });
+    bottom.appendChild(reportBtn);
+
     card.appendChild(bottom);
 
     main.appendChild(card);
@@ -634,7 +646,11 @@ function Header(context, opts = {}) {
     h.appendChild(back);
     h.appendChild(el("span", { class: "label" }, opts.title || ""));
     const reportBtn = el("button", { class: "btn-danger" }, "Report");
-    reportBtn.addEventListener("click", () => { state.reportModalOpen = true; render(); });
+    reportBtn.addEventListener("click", () => {
+      state.reportTarget = { reportedUserId: state.activeThread.otherUserId, threadId: state.activeThread.id };
+      state.reportModalOpen = true;
+      render();
+    });
     h.appendChild(reportBtn);
     return h;
   }
@@ -1299,11 +1315,13 @@ function ReportModal() {
     { key: "harass", backendKey: "harassment", label: "Harassment or abusive language" },
     { key: "unsolicited", backendKey: "unsolicited_explicit_media", label: "Unsolicited explicit media" },
     { key: "scam", backendKey: "scam", label: "Scam or off-platform payment request" },
+    { key: "political", backendKey: "other", label: "Political content" },
     { key: "other", backendKey: "other", label: "Other" },
   ];
+  const target = state.reportTarget; // { reportedUserId, postId?, threadId? }
   const backdrop = el("div", { class: "modal-backdrop" });
   const modal = el("div", { class: "modal" });
-  modal.appendChild(el("span", { class: "label" }, "Report this thread"));
+  modal.appendChild(el("span", { class: "label" }, target.threadId ? "Report this thread" : "Report this post"));
   reasons.forEach((r) => {
     const b = el("button", { class: r.tier1 ? "reason-btn tier1" : "reason-btn" }, r.label);
     b.addEventListener("click", async () => {
@@ -1312,15 +1330,17 @@ function ReportModal() {
           method: "POST",
           token: state.authToken,
           body: {
-            reported_user_id: state.activeThread.otherUserId,
+            reported_user_id: target.reportedUserId,
             reason: r.backendKey,
-            thread_id: state.activeThread.id,
+            post_id: target.postId || null,
+            thread_id: target.threadId || null,
           },
         });
-        state.activeThread.reported = true;
+        if (target.threadId && state.activeThread) state.activeThread.reported = true;
         state.reportModalOpen = false;
         render();
-        showToast(r.tier1 ? "Reported — priority review, sender restricted" : "Reported — thread frozen for review");
+        showToast(r.tier1 ? "Reported — priority review, sender restricted" : "Reported — sent for review");
+        if (!target.threadId) loadFeed(); // post reports refresh the feed in case it's removed quickly
       } catch (e) {
         showToast("Could not file report: " + e.message);
       }

@@ -1,10 +1,11 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_redis
 from app.core.security import create_access_token
+from app.core.rate_limit import limiter
 from app.config import settings
 from app.schemas.user import SignupStart, OtpVerify, SignupComplete, LoginRequest, LoginResponse
 from app.services import auth_service
@@ -14,7 +15,8 @@ router = APIRouter()
 
 
 @router.post("/signup/start")
-async def signup_start(payload: SignupStart, db: Session = Depends(get_db), redis=Depends(get_redis)):
+@limiter.limit("3/minute")
+async def signup_start(request: Request, payload: SignupStart, db: Session = Depends(get_db), redis=Depends(get_redis)):
     contact_hash = auth_service.hash_contact_ref(payload.phone_number)
 
     if auth_service.is_banned_contact_ref(db, contact_hash):
@@ -39,7 +41,8 @@ async def signup_start(payload: SignupStart, db: Session = Depends(get_db), redi
 
 
 @router.post("/signup/verify", response_model=SignupComplete)
-async def signup_verify(payload: OtpVerify, db: Session = Depends(get_db), redis=Depends(get_redis)):
+@limiter.limit("10/minute")
+async def signup_verify(request: Request, payload: OtpVerify, db: Session = Depends(get_db), redis=Depends(get_redis)):
     ok = await auth_service.verify_otp(redis, payload.phone_number, payload.otp_code)
     if not ok:
         raise HTTPException(status_code=400, detail="Invalid or expired code.")
@@ -70,7 +73,8 @@ async def signup_verify(payload: OtpVerify, db: Session = Depends(get_db), redis
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(payload: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
     contact_hash = auth_service.hash_contact_ref(payload.phone_number)
     user = db.query(User).filter_by(contact_ref_hash=contact_hash).first()
 
@@ -90,7 +94,8 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/debug/otp/{phone_number}")
-async def debug_get_otp(phone_number: str, redis=Depends(get_redis)):
+@limiter.limit("10/minute")
+async def debug_get_otp(request: Request, phone_number: str, redis=Depends(get_redis)):
     """
     TEMPORARY, TESTING ONLY. Returns the current OTP for a phone number so
     signup can be tested before a real SMS provider is wired up.

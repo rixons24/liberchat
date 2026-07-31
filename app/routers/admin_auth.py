@@ -1,11 +1,12 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.core.deps import get_db, get_current_moderator
 from app.core.security import create_access_token
+from app.core.rate_limit import limiter
 from app.config import settings
 from app.services import auth_service
 from app.models.admin import AdminUser
@@ -31,7 +32,8 @@ class AdminCreateRequest(BaseModel):
 
 
 @router.post("/login", response_model=AdminLoginResponse)
-async def admin_login(payload: AdminLoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def admin_login(request: Request, payload: AdminLoginRequest, db: Session = Depends(get_db)):
     admin = db.query(AdminUser).filter_by(username=payload.username).first()
 
     # Identical error for "no such admin" and "wrong password" — don't let

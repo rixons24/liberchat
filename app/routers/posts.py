@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_current_user
+from app.core.rate_limit import limiter
 from app.models.post import Post, PostStatus
 from app.models.user import User
 from app.schemas.post import PostCreate, PostOut
@@ -24,7 +25,9 @@ async def get_feed(db: Session = Depends(get_db), limit: int = 50):
 
 
 @router.post("/", response_model=PostOut)
+@limiter.limit("10/hour")
 async def create_post(
+    request: Request,
     payload: PostCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

@@ -8,6 +8,7 @@ from app.core.deps import get_db, get_current_moderator
 from app.models.report import Report, ReportStatus, TIER_1_REASONS, TIER_2_REASONS
 from app.models.user import User, UserStatus
 from app.models.banned_contact import BannedContact
+from app.models.dm import DMThread
 from app.schemas.moderation import ModerationAction, UserBanRequest
 
 router = APIRouter()
@@ -88,19 +89,34 @@ async def take_action(
 
     reported_user = db.query(User).get(report.reported_user_id)
 
+    def _remove_content():
+        """Shared by every action that starts with 'remove_' — actually
+        takes the content down, not just changing the user's status."""
+        if report.post_id:
+            from app.models.post import Post, PostStatus
+            post = db.query(Post).get(report.post_id)
+            if post:
+                post.status = PostStatus.removed_by_mod
+                post.deleted_at = datetime.utcnow()
+        if report.thread_id:
+            thread = db.query(DMThread).get(report.thread_id)
+            if thread:
+                thread.blocked = True
+
     if payload.action == "dismiss":
-        pass  # no change to user status
+        pass  # no change to user status, no content removed
 
     elif payload.action == "remove_content":
-        # Content removal handled by post/message service based on report.post_id/thread_id
-        pass
+        _remove_content()
 
     elif payload.action == "remove_and_strike":
+        _remove_content()
         reported_user.strikes += 1
         if reported_user.strikes >= 3:
             reported_user.status = UserStatus.banned
 
     elif payload.action == "remove_and_ban":
+        _remove_content()
         reported_user.status = UserStatus.banned
         db.add(BannedContact(
             contact_ref_hash=reported_user.contact_ref_hash,
@@ -109,6 +125,7 @@ async def take_action(
         ))
 
     elif payload.action == "remove_ban_and_report_ncmec":
+        _remove_content()
         reported_user.status = UserStatus.banned
         db.add(BannedContact(
             contact_ref_hash=reported_user.contact_ref_hash,
