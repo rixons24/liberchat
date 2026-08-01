@@ -610,24 +610,28 @@ function FeedScreen() {
 
     card.appendChild(el("p", { class: "post-body" }, p.body));
 
-    const bottom = el("div", { class: "post-bottom" });
-    bottom.appendChild(el("div", { class: "tags" }, p.tags.map((t) =>
-      el("span", { class: t === "NSFW" ? "tag" : "tag", style: t === "NSFW" ? "border-color:#B23B2E; color:#B23B2E;" : "" }, t)
-    )));
-    const respondBtn = el("button", { class: "btn-secondary" }, "Respond");
-    respondBtn.addEventListener("click", (e) => { e.stopPropagation(); openThread(p.id); });
-    bottom.appendChild(respondBtn);
+    const tagsRow = el("div", { class: "tags", style: "padding-top:12px; border-top:1px solid var(--line);" },
+      p.tags.map((t) =>
+        el("span", { class: "tag", style: t === "NSFW" ? "border-color:var(--danger); color:var(--danger);" : "" }, t)
+      )
+    );
+    card.appendChild(tagsRow);
 
-    const reportBtn = el("button", { class: "btn-danger" }, "Report");
+    const actionsRow = el("div", { style: "display:flex; gap:8px; padding-top:10px;" });
+    const respondBtn = el("button", { class: "btn-secondary", style: "flex:1;" }, "Respond");
+    respondBtn.addEventListener("click", (e) => { e.stopPropagation(); openThread(p.id); });
+    actionsRow.appendChild(respondBtn);
+
+    const reportBtn = el("button", { class: "btn-danger", style: "flex:1;" }, "Report");
     reportBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       state.reportTarget = { reportedUserId: p.authorId, postId: p.id };
       state.reportModalOpen = true;
       render();
     });
-    bottom.appendChild(reportBtn);
+    actionsRow.appendChild(reportBtn);
 
-    card.appendChild(bottom);
+    card.appendChild(actionsRow);
 
     main.appendChild(card);
   });
