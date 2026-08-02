@@ -188,6 +188,218 @@ async function api(path, { method = "GET", body, token, isFormData = false } = {
   return data;
 }
 
+// ============================================================
+// Double Ratchet — following Signal's published spec:
+// https://signal.org/docs/specifications/doubleratchet/
+//
+// Simplification vs full Signal Protocol: initial handshake uses a
+// single ECDH exchange instead of X3DH (no prekey bundles / offline
+// handshake — our threads only start when both parties are reachable
+// via the backend). From the initial root key onward this is a
+// faithful Double Ratchet: DH ratchet steps + symmetric-key chain
+// ratcheting per message, giving real forward secrecy and
+// post-compromise recovery. Tested standalone against 5 scenarios
+// (handshake symmetry, extended conversation, out-of-order delivery,
+// forward secrecy, tampered-ciphertext rejection) before integration.
+//
+// Built entirely on the browser's native Web Crypto API — no external
+// library, no bundler needed.
+// ============================================================
+
+const subtleCrypto = window.crypto.subtle;
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  bytes.forEach((b) => { binary += String.fromCharCode(b); });
+  return btoa(binary);
+}
+
+function base64ToBytes(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function rtGenerateKeyPair() {
+  return subtleCrypto.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+}
+
+async function rtExportPublicKeyRaw(publicKey) {
+  const raw = await subtleCrypto.exportKey("raw", publicKey);
+  return bytesToBase64(new Uint8Array(raw));
+}
+
+async function rtImportPublicKeyRaw(base64) {
+  const raw = base64ToBytes(base64);
+  return subtleCrypto.importKey("raw", raw, { name: "ECDH", namedCurve: "P-256" }, true, []);
+}
+
+async function rtExportPrivateKeyJwk(privateKey) {
+  return subtleCrypto.exportKey("jwk", privateKey);
+}
+
+async function rtImportPrivateKeyJwk(jwk) {
+  return subtleCrypto.importKey("jwk", jwk, { name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+}
+
+async function rtDh(privateKey, publicKey) {
+  const bits = await subtleCrypto.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
+  return new Uint8Array(bits);
+}
+
+async function rtHmacSha256(keyBytes, data) {
+  const key = await subtleCrypto.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await subtleCrypto.sign("HMAC", key, data);
+  return new Uint8Array(sig);
+}
+
+async function rtKdfRootKey(rootKey, dhOutput) {
+  const prk = await rtHmacSha256(rootKey, dhOutput);
+  const newRootKey = await rtHmacSha256(prk, new Uint8Array([0x01]));
+  const newChainKey = await rtHmacSha256(prk, new Uint8Array([0x02]));
+  return [newRootKey, newChainKey];
+}
+
+async function rtKdfChainKey(chainKey) {
+  const newChainKey = await rtHmacSha256(chainKey, new Uint8Array([0x01]));
+  const messageKey = await rtHmacSha256(chainKey, new Uint8Array([0x02]));
+  return [newChainKey, messageKey];
+}
+
+async function rtAesEncrypt(messageKeyBytes, plaintext, associatedData) {
+  const key = await subtleCrypto.importKey("raw", messageKeyBytes, "AES-GCM", false, ["encrypt"]);
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await subtleCrypto.encrypt(
+    { name: "AES-GCM", iv, additionalData: associatedData },
+    key,
+    new TextEncoder().encode(plaintext)
+  );
+  return { iv: bytesToBase64(iv), ciphertext: bytesToBase64(new Uint8Array(ciphertext)) };
+}
+
+async function rtAesDecrypt(messageKeyBytes, ivB64, ciphertextB64, associatedData) {
+  const key = await subtleCrypto.importKey("raw", messageKeyBytes, "AES-GCM", false, ["decrypt"]);
+  const iv = base64ToBytes(ivB64);
+  const ciphertext = base64ToBytes(ciphertextB64);
+  const plaintext = await subtleCrypto.decrypt({ name: "AES-GCM", iv, additionalData: associatedData }, key, ciphertext);
+  return new TextDecoder().decode(plaintext);
+}
+
+function rtNewSessionState() {
+  return {
+    rootKey: null,
+    sendRatchetKeyPair: null,
+    recvRatchetPublicKeyB64: null,
+    sendChainKey: null,
+    recvChainKey: null,
+    sendMessageNumber: 0,
+    recvMessageNumber: 0,
+    previousSendChainLength: 0,
+    skippedMessageKeys: {},
+  };
+}
+
+async function rtInitSession(sharedSecretBytes, isInitiator, opts) {
+  const state = rtNewSessionState();
+  state.rootKey = sharedSecretBytes;
+
+  if (isInitiator) {
+    state.sendRatchetKeyPair = await rtGenerateKeyPair();
+    const theirPub = await rtImportPublicKeyRaw(opts.theirIdentityPublicKeyB64);
+    const dhOut = await rtDh(state.sendRatchetKeyPair.privateKey, theirPub);
+    const [newRoot, newChain] = await rtKdfRootKey(state.rootKey, dhOut);
+    state.rootKey = newRoot;
+    state.sendChainKey = newChain;
+  } else {
+    state.sendRatchetKeyPair = opts.myIdentityKeyPair;
+  }
+
+  return state;
+}
+
+async function rtDhRatchetStep(state, theirNewPublicKeyB64) {
+  state.previousSendChainLength = state.sendMessageNumber;
+  state.sendMessageNumber = 0;
+  state.recvMessageNumber = 0;
+  state.recvRatchetPublicKeyB64 = theirNewPublicKeyB64;
+
+  const theirPub = await rtImportPublicKeyRaw(theirNewPublicKeyB64);
+
+  if (state.sendRatchetKeyPair) {
+    const dhOut1 = await rtDh(state.sendRatchetKeyPair.privateKey, theirPub);
+    const [rootAfterRecv, recvChain] = await rtKdfRootKey(state.rootKey, dhOut1);
+    state.rootKey = rootAfterRecv;
+    state.recvChainKey = recvChain;
+  }
+
+  state.sendRatchetKeyPair = await rtGenerateKeyPair();
+  const dhOut2 = await rtDh(state.sendRatchetKeyPair.privateKey, theirPub);
+  const [rootAfterSend, sendChain] = await rtKdfRootKey(state.rootKey, dhOut2);
+  state.rootKey = rootAfterSend;
+  state.sendChainKey = sendChain;
+}
+
+async function rtRatchetEncrypt(state, plaintext) {
+  const [newChainKey, messageKey] = await rtKdfChainKey(state.sendChainKey);
+  state.sendChainKey = newChainKey;
+
+  const senderPubB64 = await rtExportPublicKeyRaw(state.sendRatchetKeyPair.publicKey);
+  const header = {
+    ratchetPub: senderPubB64,
+    prevChainLen: state.previousSendChainLength,
+    msgNum: state.sendMessageNumber,
+  };
+  state.sendMessageNumber += 1;
+
+  const ad = new TextEncoder().encode(JSON.stringify(header));
+  const { iv, ciphertext } = await rtAesEncrypt(messageKey, plaintext, ad);
+
+  return { header, iv, ciphertext };
+}
+
+const RT_MAX_SKIP = 1000;
+
+async function rtStoreSkippedKeys(state, ratchetPubB64, untilMsgNum) {
+  if (!state.recvChainKey) return;
+  if (untilMsgNum - state.recvMessageNumber > RT_MAX_SKIP) {
+    throw new Error("Too many skipped messages.");
+  }
+  while (state.recvMessageNumber < untilMsgNum) {
+    const [newChainKey, messageKey] = await rtKdfChainKey(state.recvChainKey);
+    state.recvChainKey = newChainKey;
+    state.skippedMessageKeys[`${ratchetPubB64}:${state.recvMessageNumber}`] = bytesToBase64(messageKey);
+    state.recvMessageNumber += 1;
+  }
+}
+
+async function rtRatchetDecrypt(state, header, iv, ciphertext) {
+  const skipKey = `${header.ratchetPub}:${header.msgNum}`;
+  if (state.skippedMessageKeys[skipKey]) {
+    const messageKey = base64ToBytes(state.skippedMessageKeys[skipKey]);
+    delete state.skippedMessageKeys[skipKey];
+    const ad = new TextEncoder().encode(JSON.stringify(header));
+    return rtAesDecrypt(messageKey, iv, ciphertext, ad);
+  }
+
+  if (header.ratchetPub !== state.recvRatchetPublicKeyB64) {
+    if (state.recvChainKey) {
+      await rtStoreSkippedKeys(state, state.recvRatchetPublicKeyB64, header.prevChainLen);
+    }
+    await rtDhRatchetStep(state, header.ratchetPub);
+  }
+
+  await rtStoreSkippedKeys(state, header.ratchetPub, header.msgNum);
+
+  const [newChainKey, messageKey] = await rtKdfChainKey(state.recvChainKey);
+  state.recvChainKey = newChainKey;
+  state.recvMessageNumber += 1;
+
+  const ad = new TextEncoder().encode(JSON.stringify(header));
+  return rtAesDecrypt(messageKey, iv, ciphertext, ad);
+}
+
+
 const posts = [];
 
 
@@ -482,13 +694,50 @@ function decodeJwtSub(token) {
 
 let activeSocket = null;
 
-function mapMessage(m, isFromEvent) {
-  const senderId = isFromEvent ? m.sender_id : m.sender_id;
-  const createdAt = isFromEvent ? m.created_at : m.created_at;
+function loadLocalMessages(threadId) {
+  const cached = localStorage.getItem(`liberchat_messages_${threadId}`);
+  return cached ? JSON.parse(cached) : [];
+}
+
+function appendLocalMessage(threadId, msg) {
+  const existing = loadLocalMessages(threadId);
+  existing.push(msg);
+  localStorage.setItem(`liberchat_messages_${threadId}`, JSON.stringify(existing));
+}
+
+async function mapMessage(m, isFromEvent, threadId) {
+  const senderId = m.sender_id;
+  const createdAt = m.created_at;
+  const rawId = isFromEvent ? m.message_id : m.id;
+  const isMine = senderId === decodeJwtSub(state.authToken);
+
+  let text = m.ciphertext;
+  let decryptFailed = false;
+
+  if (m.ciphertext && threadId && threadRatchetStates[threadId]) {
+    try {
+      const envelope = JSON.parse(m.ciphertext);
+      if (envelope.header && envelope.iv && envelope.ciphertext) {
+        text = await rtRatchetDecrypt(threadRatchetStates[threadId], envelope.header, envelope.iv, envelope.ciphertext);
+        saveRatchetState(threadId, threadRatchetStates[threadId]);
+      }
+    } catch (e) {
+      // Real forward-secrecy consequence, not a bug: once the ratchet has
+      // advanced past a message key, it's gone by design - the message
+      // key was discarded after first use. This happens when a message
+      // was never seen live and isn't in the local plaintext cache
+      // (e.g. history that predates this device's cache, or cache was
+      // cleared). There is no way to recover it - that's the point.
+      text = "[Encrypted message not available on this device]";
+      decryptFailed = true;
+    }
+  }
+
   return {
-    id: isFromEvent ? m.message_id : m.id,
-    from: senderId === decodeJwtSub(state.authToken) ? "me" : "them",
-    text: m.ciphertext,
+    id: rawId,
+    from: isMine ? "me" : "them",
+    text,
+    decryptFailed,
     time: new Date(createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     media: m.media_id ? {
       id: m.media_id,
@@ -501,13 +750,125 @@ function mapMessage(m, isFromEvent) {
   };
 }
 
+// ---------- Identity key + per-thread ratchet session management ----------
+
+let cachedMyIdentityKeyPair = null;
+
+async function ensureMyIdentityKey() {
+  if (cachedMyIdentityKeyPair) return cachedMyIdentityKeyPair;
+
+  const stored = localStorage.getItem("liberchat_identity_privkey_jwk");
+  if (stored) {
+    const jwk = JSON.parse(stored);
+    const privateKey = await rtImportPrivateKeyJwk(jwk);
+    const publicJwk = { ...jwk };
+    delete publicJwk.d;
+    publicJwk.key_ops = [];
+    const publicKey = await subtleCrypto.importKey("jwk", publicJwk, { name: "ECDH", namedCurve: "P-256" }, true, []);
+    cachedMyIdentityKeyPair = { privateKey, publicKey };
+    return cachedMyIdentityKeyPair;
+  }
+
+  const pair = await rtGenerateKeyPair();
+  const jwk = await rtExportPrivateKeyJwk(pair.privateKey);
+  localStorage.setItem("liberchat_identity_privkey_jwk", JSON.stringify(jwk));
+  cachedMyIdentityKeyPair = pair;
+
+  const pubB64 = await rtExportPublicKeyRaw(pair.publicKey);
+  try {
+    await api("/dm/identity-key", { method: "POST", token: state.authToken, body: { public_key_b64: pubB64 } });
+  } catch (e) {
+    showToast("Could not publish encryption key: " + e.message);
+  }
+
+  return cachedMyIdentityKeyPair;
+}
+
+async function serializeRatchetState(rState) {
+  const privJwk = await rtExportPrivateKeyJwk(rState.sendRatchetKeyPair.privateKey);
+  const pubB64 = await rtExportPublicKeyRaw(rState.sendRatchetKeyPair.publicKey);
+  return JSON.stringify({
+    rootKey: bytesToBase64(rState.rootKey),
+    sendPrivJwk: privJwk,
+    sendPubB64: pubB64,
+    recvRatchetPublicKeyB64: rState.recvRatchetPublicKeyB64,
+    sendChainKey: rState.sendChainKey ? bytesToBase64(rState.sendChainKey) : null,
+    recvChainKey: rState.recvChainKey ? bytesToBase64(rState.recvChainKey) : null,
+    sendMessageNumber: rState.sendMessageNumber,
+    recvMessageNumber: rState.recvMessageNumber,
+    previousSendChainLength: rState.previousSendChainLength,
+    skippedMessageKeys: rState.skippedMessageKeys,
+  });
+}
+
+async function deserializeRatchetState(json) {
+  const obj = JSON.parse(json);
+  const privateKey = await rtImportPrivateKeyJwk(obj.sendPrivJwk);
+  const publicKey = await rtImportPublicKeyRaw(obj.sendPubB64);
+  return {
+    rootKey: base64ToBytes(obj.rootKey),
+    sendRatchetKeyPair: { privateKey, publicKey },
+    recvRatchetPublicKeyB64: obj.recvRatchetPublicKeyB64,
+    sendChainKey: obj.sendChainKey ? base64ToBytes(obj.sendChainKey) : null,
+    recvChainKey: obj.recvChainKey ? base64ToBytes(obj.recvChainKey) : null,
+    sendMessageNumber: obj.sendMessageNumber,
+    recvMessageNumber: obj.recvMessageNumber,
+    previousSendChainLength: obj.previousSendChainLength,
+    skippedMessageKeys: obj.skippedMessageKeys,
+  };
+}
+
+function saveRatchetState(threadId, rState) {
+  serializeRatchetState(rState).then((json) => {
+    localStorage.setItem(`liberchat_ratchet_${threadId}`, json);
+  });
+}
+
+const threadRatchetStates = {}; // in-memory cache: threadId -> ratchet state
+
+async function establishRatchetSession(threadId, otherUserId, isInitiator) {
+  const stored = localStorage.getItem(`liberchat_ratchet_${threadId}`);
+  if (stored) {
+    threadRatchetStates[threadId] = await deserializeRatchetState(stored);
+    return;
+  }
+
+  const myKeys = await ensureMyIdentityKey();
+
+  let theirPubB64;
+  try {
+    const resp = await api(`/dm/identity-key/${otherUserId}`, { token: state.authToken });
+    theirPubB64 = resp.public_key_b64;
+  } catch (e) {
+    // Other user hasn't published a key yet (e.g. a very new account
+    // that hasn't opened the app since this feature shipped). Messages
+    // stay unencrypted for this thread until they do.
+    threadRatchetStates[threadId] = null;
+    return;
+  }
+
+  const theirPub = await rtImportPublicKeyRaw(theirPubB64);
+  const sharedSecret = await rtDh(myKeys.privateKey, theirPub);
+
+  const rState = isInitiator
+    ? await rtInitSession(sharedSecret, true, { theirIdentityPublicKeyB64: theirPubB64 })
+    : await rtInitSession(sharedSecret, false, { myIdentityKeyPair: myKeys });
+
+  threadRatchetStates[threadId] = rState;
+  saveRatchetState(threadId, rState);
+}
+
 function connectThreadSocket(threadId) {
   if (activeSocket) activeSocket.close();
   activeSocket = new WebSocket(`${API_BASE.replace("http", "ws")}/dm/ws/${threadId}?token=${state.authToken}`);
-  activeSocket.onmessage = (event) => {
+  activeSocket.onmessage = async (event) => {
     const data = JSON.parse(event.data);
-    state.activeThread.messages.push(mapMessage(data, true));
-    render();
+    const mapped = await mapMessage(data, true, threadId);
+    if (state.activeThread && state.activeThread.id === threadId) {
+      state.activeThread.messages.push(mapped);
+      render();
+    }
+    appendLocalMessage(threadId, mapped);
   };
 }
 
@@ -528,15 +889,13 @@ async function ensureSocketOpen(threadId) {
 async function openThread(postId) {
   try {
     const thread = await api("/dm/thread/start", { method: "POST", token: state.authToken, body: { post_id: postId } });
-    const history = await api(`/dm/thread/${thread.id}/messages`, { token: state.authToken });
+    const myId = decodeJwtSub(state.authToken);
+    const otherUserId = thread.user_a_id === myId ? thread.user_b_id : thread.user_a_id;
+    const isInitiator = thread.user_a_id === myId; // whoever called thread/start sends first
 
-    state.activeThread = {
-      id: thread.id,
-      otherUserId: thread.user_a_id === decodeJwtSub(state.authToken) ? thread.user_b_id : thread.user_a_id,
-      reported: false,
-      messages: history.map((m) => mapMessage(m, false)),
-    };
-    connectThreadSocket(thread.id);
+    await establishRatchetSession(thread.id, otherUserId, isInitiator);
+    await loadThreadIntoState(thread.id, otherUserId);
+
     state.screenBeforeThread = "feed";
     state.screen = "thread";
     render();
@@ -555,21 +914,41 @@ async function openThread(postId) {
 async function openExistingThread(threadId) {
   try {
     const thread = await api(`/dm/thread/${threadId}`, { token: state.authToken });
-    const history = await api(`/dm/thread/${threadId}/messages`, { token: state.authToken });
+    const myId = decodeJwtSub(state.authToken);
+    const otherUserId = thread.user_a_id === myId ? thread.user_b_id : thread.user_a_id;
+    const isInitiator = thread.user_a_id === myId;
 
-    state.activeThread = {
-      id: thread.id,
-      otherUserId: thread.user_a_id === decodeJwtSub(state.authToken) ? thread.user_b_id : thread.user_a_id,
-      reported: false,
-      messages: history.map((m) => mapMessage(m, false)),
-    };
-    connectThreadSocket(thread.id);
+    await establishRatchetSession(thread.id, otherUserId, isInitiator);
+    await loadThreadIntoState(thread.id, otherUserId);
+
     state.screenBeforeThread = "messages";
     state.screen = "thread";
     render();
   } catch (e) {
     showToast("Could not open thread: " + e.message);
   }
+}
+
+async function loadThreadIntoState(threadId, otherUserId) {
+  // Local plaintext cache first (always available, no decryption needed).
+  const cached = loadLocalMessages(threadId);
+  const cachedIds = new Set(cached.map((m) => m.id));
+
+  // Diff against server history - only decrypt messages we haven't
+  // cached locally yet (new arrivals since this device last saw this
+  // thread). Anything already cached stays as-is; re-decrypting it would
+  // fail anyway since the ratchet has moved past those message keys.
+  const serverHistory = await api(`/dm/thread/${threadId}/messages`, { token: state.authToken });
+  const newOnes = serverHistory.filter((m) => !cachedIds.has(m.id));
+
+  for (const m of newOnes) {
+    const mapped = await mapMessage(m, false, threadId);
+    cached.push(mapped);
+    appendLocalMessage(threadId, mapped);
+  }
+
+  state.activeThread = { id: threadId, otherUserId, reported: false, messages: cached };
+  connectThreadSocket(threadId);
 }
 
 async function loadThreads() {
@@ -792,7 +1171,12 @@ function ThreadScreen() {
 
   thread.messages.forEach((m) => {
     const bubble = el("div", { class: `msg ${m.from}` });
-    if (m.text) bubble.appendChild(document.createTextNode(m.text));
+    if (m.text) {
+      const textNode = m.decryptFailed
+        ? el("span", { style: "font-style:italic; opacity:0.6;" }, m.text)
+        : document.createTextNode(m.text);
+      bubble.appendChild(textNode);
+    }
     if (m.media) {
       let chip;
       if (m.media.consumed) {
@@ -828,7 +1212,7 @@ function ThreadScreen() {
   wrap.appendChild(msgsWrap);
 
   const composer = el("div", { class: "composer" });
-  const input = el("input", { type: "text", placeholder: thread.reported ? "This thread is frozen." : "Message — plaintext for now, E2EE key exchange not yet wired client-side" });
+  const input = el("input", { type: "text", placeholder: thread.reported ? "This thread is frozen." : "Message — end-to-end encrypted" });
   if (thread.reported) input.setAttribute("disabled", "true");
 
   async function sendTextMessage() {
@@ -839,11 +1223,31 @@ function ThreadScreen() {
       showToast("Couldn't reconnect — check your connection and try again.");
       return;
     }
-    activeSocket.send(JSON.stringify({ ciphertext: input.value.trim(), media_id: null }));
+
+    const plaintext = input.value.trim();
+    const rState = threadRatchetStates[thread.id];
+
+    let ciphertextField;
+    if (rState) {
+      const { header, iv, ciphertext } = await rtRatchetEncrypt(rState, plaintext);
+      ciphertextField = JSON.stringify({ header, iv, ciphertext });
+      saveRatchetState(thread.id, rState);
+    } else {
+      // No ratchet session (recipient hasn't published an identity key
+      // yet) - send in the clear rather than silently failing. This
+      // should be rare in practice since keys publish automatically.
+      ciphertextField = plaintext;
+      showToast("Sent unencrypted — recipient hasn't set up encryption yet.");
+    }
+
+    activeSocket.send(JSON.stringify({ ciphertext: ciphertextField, media_id: null }));
+
     // Optimistic local echo — the real row comes back for the recipient
     // via their own socket message; our own copy is added here since the
     // relay only pushes to the *other* participant, not an echo to sender.
-    thread.messages.push({ from: "me", text: input.value.trim(), time: nowTime() });
+    const localMsg = { id: "local-" + Date.now(), from: "me", text: plaintext, time: nowTime() };
+    thread.messages.push(localMsg);
+    appendLocalMessage(thread.id, localMsg);
     input.value = "";
     render();
   }

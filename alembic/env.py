@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app.database import Base
 from app.config import settings
 from app.models import user, post, dm, media, report, banned_contact, admin  # noqa: F401 — register all models
-from app.services.encryption import PrekeyBundle  # noqa: F401
+from app.services.encryption import IdentityKey  # noqa: F401
 from app.services.csam_response import EvidenceRecord  # noqa: F401
 
 config_db_url = settings.sync_database_url

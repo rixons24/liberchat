@@ -26,66 +26,30 @@ from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 
 
-class PrekeyBundle(Base):
+class IdentityKey(Base):
     """
-    Public key material a user publishes so others can initiate an
-    encrypted session with them (X3DH). Only public keys are ever stored
-    server-side — private keys never leave the originating device.
+    One long-term ECDH public key per user, used to bootstrap the
+    Double Ratchet's initial shared secret (see frontend ratchet code).
+    Only the public key is ever stored server-side - the private key
+    never leaves the user's device.
     """
-    __tablename__ = "prekey_bundles"
+    __tablename__ = "identity_keys"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-
-    identity_key_public = Column(String, nullable=False)
-    signed_prekey_public = Column(String, nullable=False)
-    signed_prekey_signature = Column(String, nullable=False)
-    one_time_prekey_public = Column(String, nullable=True)  # consumed on use, replenished by client
-    registration_id = Column(Integer, nullable=False)
-
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    public_key_b64 = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-async def publish_prekey_bundle(db, user_id: uuid.UUID, bundle: dict):
-    """Client calls this on signup/key rotation to publish fresh public key material."""
-    row = PrekeyBundle(
-        user_id=user_id,
-        identity_key_public=bundle["identity_key_public"],
-        signed_prekey_public=bundle["signed_prekey_public"],
-        signed_prekey_signature=bundle["signed_prekey_signature"],
-        one_time_prekey_public=bundle.get("one_time_prekey_public"),
-        registration_id=bundle["registration_id"],
-    )
-    db.add(row)
+async def publish_identity_key(db, user_id: uuid.UUID, public_key_b64: str):
+    existing = db.query(IdentityKey).filter_by(user_id=user_id).first()
+    if existing:
+        existing.public_key_b64 = public_key_b64
+    else:
+        db.add(IdentityKey(user_id=user_id, public_key_b64=public_key_b64))
     db.commit()
-    return row
 
 
-async def fetch_prekey_bundle(db, user_id: uuid.UUID):
-    """
-    Called by the initiating client when starting a new DM thread — fetches
-    the other party's public bundle to run the X3DH handshake locally.
-    One-time prekey is consumed (deleted) once fetched, per protocol.
-    """
-    row = (
-        db.query(PrekeyBundle)
-        .filter_by(user_id=user_id)
-        .order_by(PrekeyBundle.created_at.desc())
-        .first()
-    )
-    if row is None:
-        raise ValueError("No prekey bundle available for this user.")
-
-    result = {
-        "identity_key_public": row.identity_key_public,
-        "signed_prekey_public": row.signed_prekey_public,
-        "signed_prekey_signature": row.signed_prekey_signature,
-        "one_time_prekey_public": row.one_time_prekey_public,
-        "registration_id": row.registration_id,
-    }
-
-    if row.one_time_prekey_public:
-        row.one_time_prekey_public = None  # consumed, client must replenish supply later
-        db.commit()
-
-    return result
+async def fetch_identity_key(db, user_id: uuid.UUID) -> str | None:
+    row = db.query(IdentityKey).filter_by(user_id=user_id).first()
+    return row.public_key_b64 if row else None

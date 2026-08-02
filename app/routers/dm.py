@@ -82,6 +82,30 @@ async def mark_thread_read(thread_id: str, db: Session = Depends(get_db), curren
     return {"ok": True}
 
 
+@router.post("/identity-key")
+async def publish_identity_key(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.encryption import publish_identity_key as _publish
+    await _publish(db, current_user.id, payload["public_key_b64"])
+    return {"message": "Identity key published."}
+
+
+@router.get("/identity-key/{user_id}")
+async def get_identity_key(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+):
+    from app.services.encryption import fetch_identity_key as _fetch
+    key = await _fetch(db, user_id)
+    if key is None:
+        raise HTTPException(status_code=404, detail="No identity key published for this user yet.")
+    return {"public_key_b64": key}
+
+
 @router.post("/thread/start", response_model=ThreadOut)
 async def start_thread(
     payload: ThreadStartRequest,
